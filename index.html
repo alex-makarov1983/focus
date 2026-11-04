@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e131d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Focus">
+  <meta name="description" content="Focus: tasks, projects, notes, calendar, safe storage and money in one place.">
+  <title>Focus</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css?v=1.0.0">
+</head>
+<body>
+  <header class="topbar" id="topbar">
+    <button class="icon-btn" id="menuBtn" data-act="openMenu" aria-label="Open menu" aria-controls="drawer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <button class="icon-btn back-btn" id="backBtn" data-act="back" aria-label="Back" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      <span>Back</span>
+    </button>
+    <span class="mini-title" id="miniTitle"></span>
+    <span class="spacer"></span>
+    <span id="topActions"></span>
+  </header>
+
+  <main class="screen" id="screen" tabindex="-1">
+    <div class="loading" id="bootMsg">
+      <p><strong>Focus is starting…</strong></p>
+      <p>If this message stays, this viewer cannot run web apps (for example, a file preview in Files, Mail or a chat app). Open the published https link in Safari instead.</p>
+    </div>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Main">
+    <button class="tab" data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-6.5L20 11v8.5a1 1 0 0 1-1 1h-4.5V15h-5v5.5H5a1 1 0 0 1-1-1z"/></svg>Home</button>
+    <button class="tab" data-go="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>Today</button>
+    <div class="tab-add"><button class="add-btn" data-act="openAdd" aria-label="Add new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+    <button class="tab" data-go="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Calendar</button>
+    <button class="tab" data-go="projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>Projects</button>
+  </nav>
+
+  <div class="shade" id="shade" data-act="closeMenu"></div>
+  <aside class="drawer" id="drawer" aria-label="All sections" aria-hidden="true">
+    <div class="drawer-head">
+      <span class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>Focus</span>
+      <button class="icon-btn" data-act="closeMenu" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <nav id="drawerNav"></nav>
+    <div class="drawer-foot">
+      <button data-act="exportData">Export data</button>
+      <button data-act="importData">Import</button>
+      <button data-act="resetDemo">Reset demo</button>
+      <span class="ver" id="ver"></span>
+    </div>
+  </aside>
+
+  <div class="sheet-wrap" id="sheetWrap" aria-hidden="true">
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMsg"></span><button id="toastBtn" hidden></button></div>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+
+  <noscript><p style="padding:20px">Focus needs JavaScript. Open the published https link in Safari.</p></noscript>
+  <script src="app.js?v=1.0.0"></script>
+</body>
+</html>

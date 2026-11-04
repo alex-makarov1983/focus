@@ -1,0 +1,14 @@
+{
+  "name": "focus-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Focus: mobile-first PWA for tasks, projects, notes, calendar, safe storage and money.",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "test": "playwright test",
+    "test:iphone": "playwright test --project=iphone-webkit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
