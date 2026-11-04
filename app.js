@@ -1632,8 +1632,17 @@
         });
       });
     },
-    put: function (id, blob) { return this.tx('readwrite', function (s) { return s.put(blob, id); }); },
-    get: function (id) { return this.tx('readonly', function (s) { return s.get(id); }); },
+    /* Bytes, not Blob: Safari can't keep Blobs in IndexedDB in private mode. */
+    put: function (id, blob) {
+      var self = this;
+      var bytes = blob.arrayBuffer ? blob.arrayBuffer() : new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { rej(fr.error); }; fr.readAsArrayBuffer(blob); });
+      return bytes.then(function (buf) { return self.tx('readwrite', function (s) { return s.put({ type: blob.type || 'image/jpeg', bytes: buf }, id); }); });
+    },
+    get: function (id) {
+      return this.tx('readonly', function (s) { return s.get(id); }).then(function (v) {
+        if (!v) return null; if (v instanceof Blob) return v; return new Blob([v.bytes], { type: v.type });
+      });
+    },
     del: function (id) { return this.tx('readwrite', function (s) { return s.delete(id); }); },
     keys: function () { return this.tx('readonly', function (s) { return s.getAllKeys(); }); }
   };
