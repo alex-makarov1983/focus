@@ -1,6 +1,6 @@
 /* Focus service worker: network-first for app files, cache fallback for offline use. */
-var CACHE = 'focus-v1.0.0';
-var SHELL = ['./', './index.html', './styles.css?v=1.0.0', './app.js?v=1.0.0', './manifest.webmanifest',
+var CACHE = 'focus-v1.1.0';
+var SHELL = ['./', './index.html', './styles.css?v=1.1.0', './app.js?v=1.1.0', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
