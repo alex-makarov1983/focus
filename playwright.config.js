@@ -6,7 +6,8 @@ module.exports = defineConfig({
   timeout: 45000,
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  reporter: process.env.CI ? [['github'], ['list'], ['html', { open: 'never' }]] : 'list',
+  expect: { timeout: 10000 },
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:4173/',
     trace: 'retain-on-failure',
