@@ -2428,6 +2428,765 @@
       .replace('Reset demo</button>', 'Erase all data</button>');
   };
 
+
+  /* ================= v1.3 ================= */
+  APP_VERSION = '1.3.0';
+
+  /* ---------- statuses, routes, selectors ---------- */
+  STATUSES.splice(3, 0, ['paused', 'Paused']);
+  ROUTES.urgent.title = 'Most important';
+  Object.assign(ROUTES, {
+    paused: { title: 'Paused', icon: 'someday' },
+    travel: { title: 'Travel planner', icon: 'travel' }, trip: { title: 'Trip', sub: true },
+    friends: { title: 'Friends', icon: 'friends' }, media: { title: 'Watch · Read · Listen', icon: 'media' }
+  });
+  ICON.travel = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5L4 11l1.5-1.5 7 1 3.5-3.5c1-1 2.5-1.2 3-.5s.5 2-.5 3L15 13l1 7-1.5 1.5-2.5-6.5-3 3v2.5L7.5 22 6 18l-4-1.5L3.5 15H6z"/></svg>';
+  ICON.friends = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="3.3"/><circle cx="16.5" cy="9.5" r="2.6"/><path d="M2.5 19.5c.8-3 3.2-4.6 6-4.6s5.2 1.6 6 4.6M14.5 14.6c2.6-.4 5.6.8 6.6 4"/></svg>';
+  ICON.media = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>';
+  ICON.spark = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>';
+  ICON.balance = ICON.finance;
+  DRAWER_GROUPS = [
+    ['Plan', ['home', 'inbox', 'today', 'urgent', 'upcoming', 'anytime', 'someday', 'followup', 'paused', 'logbook']],
+    ['Views', ['calendar', 'kanban']],
+    ['Life', ['habits', 'life', 'friends', 'travel', 'media']],
+    ['Organize', ['areas', 'projects', 'notes', 'bookmarks', 'delegated']],
+    ['Private', ['safe']],
+    ['Money', ['finance', 'purchases']],
+    ['App', ['settings']]
+  ];
+  function active(t) { return isOpen(t) && t.status !== 'paused'; }
+  sel.inbox = function () { return db.tasks.filter(function (t) { return active(t) && t.list === 'inbox'; }).sort(byOrder); };
+  sel.today = function () { var d = today(); return db.tasks.filter(function (t) { return active(t) && t.list !== 'someday' && t.date && t.date <= d; }).sort(byOrder); };
+  sel.upcoming = function () { var d = today(); return db.tasks.filter(function (t) { return active(t) && t.list !== 'someday' && t.date && t.date > d; }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order; }); };
+  sel.anytime = function () { return db.tasks.filter(function (t) { return active(t) && t.list === 'anytime' && !t.date; }).sort(byOrder); };
+  sel.overdue = function () { var d = today(); return db.tasks.filter(function (t) { return active(t) && t.list !== 'someday' && t.date && t.date < d; }); };
+  sel.urgent = function () { return db.tasks.filter(function (t) { return active(t) && t.priority === 'urgent'; }).sort(byOrder); };
+  sel.paused = function () { return db.tasks.filter(function (t) { return isOpen(t) && t.status === 'paused'; }).sort(byOrder); };
+  sel.doneToday = function () { var d = today(); return db.tasks.filter(function (t) { return t.done && t.completedAt === d; }); };
+  screens.urgent = function () { return head('Most important', 'Every open task marked Urgent.') + taskList(sel.urgent(), 'urgent', 'Nothing marked most important.') + addTaskBtn({}, 'Add task'); };
+  screens.paused = function () { return head('Paused', 'On hold. Set status back to To Do to resume.') + taskList(sel.paused(), 'paused', 'No paused tasks.', { sortable: false }); };
+
+  var DEFAULT_LIFE_PRIORITIES = ['Здоровье', 'Свобода', 'Доход', 'Отношения', 'Комфорт', 'Друзья/Близкие'];
+  var _normalize4 = normalize;
+  normalize = function (d) {
+    d = _normalize4(d);
+    if (!Array.isArray(d.lifePriorities)) d.lifePriorities = DEFAULT_LIFE_PRIORITIES.slice();
+    ['trips', 'friends', 'media'].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
+    d.notes.forEach(function (n) { if (!n.createdAt) n.createdAt = n.updatedAt || Date.now(); if (!Array.isArray(n.photos)) n.photos = []; if (!Array.isArray(n.links)) n.links = []; });
+    return d;
+  };
+
+  /* ---------- compact header: title next to the menu, action top-right ---------- */
+  function aiTopBtn() { return '<button class="icon-btn ai-top" data-act="openAssistant" aria-label="AI assistant">' + ICON.spark + '</button>'; }
+  var _render4 = render;
+  render = function (resetScroll) {
+    _render4(resetScroll);
+    var ph = $('#screen .page-head'), slot = $('#topActions');
+    slot.innerHTML = '';
+    if (ph) {
+      ph.classList.add('compact');
+      var right = ph.children[1];
+      if (right) { right.classList.add('top-action'); slot.appendChild(right); }
+    }
+    if (!slot.children.length) slot.innerHTML = aiTopBtn();
+    $('#topbar').classList.add('titled');
+  };
+
+  /* ---------- clocks: weekday + date under each city ---------- */
+  clocksHtml = function () {
+    return CLOCKS.map(function (c) {
+      var time = '—', day = '';
+      try {
+        var now = new Date();
+        time = new Intl.DateTimeFormat('en-GB', { timeZone: c[1], hour: '2-digit', minute: '2-digit' }).format(now);
+        day = new Intl.DateTimeFormat('en-US', { timeZone: c[1], weekday: 'short' }).format(now) + ' ' + new Intl.DateTimeFormat('en-US', { timeZone: c[1], day: 'numeric' }).format(now);
+      } catch (e) { /* ignore */ }
+      return '<div class="clock"><span class="city">' + esc(c[0]) + '</span><span class="ctime">' + esc(time) + '</span><span class="cday">' + esc(day) + '</span></div>';
+    }).join('');
+  };
+
+  /* ---------- rates with 24h change, sunrise/sunset ---------- */
+  refreshMarket = function (force) {
+    var c = readCache('focus.market');
+    if (!force && c && c.v === 2 && Date.now() - c.t < FRESH) return Promise.resolve(c);
+    return fetchJson('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether&vs_currencies=usd,rub,idr,eur&include_24hr_change=true').then(function (j) {
+      var tu = (j.tether && j.tether.usd) || 1;
+      var m = { v: 2, t: Date.now(), btcUsd: j.bitcoin.usd, btcChg: j.bitcoin.usd_24h_change, usdtRub: j.tether.rub, rubChg: j.tether.rub_24h_change,
+        usdIdr: j.tether.idr / tu, idrChg: j.tether.idr_24h_change, rates: { RUB: j.tether.rub / tu, IDR: j.tether.idr / tu, EUR: j.tether.eur / tu } };
+      writeCache('focus.market', m); return m;
+    });
+  };
+  function chg(v) {
+    if (v == null || isNaN(v)) return '<span class="wchg">vs yesterday —</span>';
+    var up = v >= 0;
+    return '<span class="wchg ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + ' ' + Math.abs(v).toFixed(2) + '%</span>';
+  }
+  function refreshSun(force) {
+    var g = readCache('focus.geo'); if (!g) return Promise.reject(new Error('nogeo'));
+    var c = readCache('focus.sun');
+    if (!force && c && c.day === today() && Math.abs(c.lat - g.lat) < 0.2 && Math.abs(c.lon - g.lon) < 0.2) return Promise.resolve(c);
+    return fetchJson('https://api.open-meteo.com/v1/forecast?latitude=' + g.lat.toFixed(3) + '&longitude=' + g.lon.toFixed(3) + '&daily=sunrise,sunset&timezone=auto&forecast_days=1').then(function (j) {
+      var s = { day: today(), lat: g.lat, lon: g.lon, rise: j.daily.sunrise[0].slice(11, 16), set: j.daily.sunset[0].slice(11, 16) };
+      writeCache('focus.sun', s); return s;
+    });
+  }
+  actions.enableGeo = function () {
+    if (!navigator.geolocation) { toast('Location isn’t available on this device'); return; }
+    navigator.geolocation.getCurrentPosition(function (p) {
+      writeCache('focus.geo', { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() });
+      refreshSun(true).then(function () { render(); }).catch(function () { toast('Could not load sunrise times'); });
+    }, function () { toast('Allow location access to see sunrise and sunset'); }, { timeout: 10000, maximumAge: 3600000 });
+  };
+  widgetsHtml = function () {
+    var W = db.settings.widgets, m = readCache('focus.market'), w = readCache('focus.weather'), s = readCache('focus.sun'), g = readCache('focus.geo'), out = '';
+    if (m && m.v !== 2) m = null;
+    function tileW(lbl, id, val, sub) { return '<div class="widget"><span class="wl">' + lbl + '</span><span class="wv" id="' + id + '">' + val + '</span>' + sub + '</div>'; }
+    if (W.rates) {
+      out += tileW('USDT → RUB', 'wUsdt', m ? esc(m.usdtRub.toFixed(2)) + ' ₽' : '…', '<span id="wUsdtC">' + chg(m && m.rubChg) + '</span>');
+      out += tileW('USD → IDR', 'wIdr', m ? esc(Math.round(m.usdIdr).toLocaleString('en-US')) : '…', '<span id="wIdrC">' + chg(m && m.idrChg) + '</span>');
+      out += tileW('BTC → USD', 'wBtc', m ? esc(fmtMoney(Math.round(m.btcUsd), 'USD')) : '…', '<span id="wBtcC">' + chg(m && m.btcChg) + '</span>');
+    }
+    if (W.weather) out += tileW('Moscow', 'wTemp', w ? (w.temp > 0 ? '+' : '') + Math.round(w.temp) + '°' : '…', '<span class="wchg" id="wCond">' + (w ? esc(weatherText(w.code)) : '') + '</span>');
+    out += g ? tileW('Sun', 'wSun', s ? '☀︎ ' + esc(s.rise) : '…', '<span class="wchg" id="wSet">' + (s ? '☾ ' + esc(s.set) : '') + '</span>')
+      : '<button class="widget" data-act="enableGeo"><span class="wl">Sun</span><span class="wv">☀︎</span><span class="wchg">Tap to use location</span></button>';
+    if (W.traffic) out += '<a class="widget" href="https://yandex.ru/maps/213/moscow/probki/" target="_blank" rel="noopener noreferrer"><span class="wl">Traffic</span><span class="wv">MSK ↗</span><span class="wchg">Yandex</span></a>';
+    return out ? '<div class="widgets">' + out + '</div>' : '';
+  };
+  updateWidgets = function () {
+    if (ui.route.name !== 'home') return;
+    var W = db.settings.widgets;
+    function set(id, html) { var el = $('#' + id); if (el) el.innerHTML = html; }
+    if (W.rates) refreshMarket().then(function (m) {
+      set('wUsdt', esc(m.usdtRub.toFixed(2)) + ' ₽'); set('wUsdtC', chg(m.rubChg));
+      set('wIdr', esc(Math.round(m.usdIdr).toLocaleString('en-US'))); set('wIdrC', chg(m.idrChg));
+      set('wBtc', esc(fmtMoney(Math.round(m.btcUsd), 'USD'))); set('wBtcC', chg(m.btcChg));
+    }).catch(function () { set('wUsdtC', '<span class="wchg">offline</span>'); });
+    if (W.weather) refreshWeather().then(function (w) { set('wTemp', (w.temp > 0 ? '+' : '') + Math.round(w.temp) + '°'); set('wCond', esc(weatherText(w.code))); }).catch(function () { /* keep cached */ });
+    if (readCache('focus.geo')) refreshSun().then(function (s) { set('wSun', '☀︎ ' + esc(s.rise)); set('wSet', '☾ ' + esc(s.set)); }).catch(function () { /* keep */ });
+  };
+
+  /* ---------- Home ---------- */
+  var HOME_LINKS = ['calendar', 'kanban', 'projects', 'notes', 'habits', 'life', 'travel', 'friends', 'media', 'bookmarks', 'finance', 'purchases'];
+  function homeTile(route, label, n, cls) {
+    return '<button class="tile' + (cls ? ' ' + cls : '') + '" data-go="' + route + '"><div class="l">' + esc(label) + '</div><div class="n">' + n + '</div></button>';
+  }
+  screens.home = function () {
+    var t = today(), S = db.settings;
+    var html = head('Home');
+    if (S.widgets.clocks) html += '<div class="clocks" id="clocks">' + clocksHtml() + '</div>';
+    html += widgetsHtml();
+    html += '<button class="ai-bar" data-act="openAssistant">' + ICON.spark + '<span>Ask the assistant: “task tomorrow 10:00 call bank”</span>' + ICON.mic + '</button>';
+    var deleg = db.tasks.filter(function (x) { return isOpen(x) && x.delegatedTo; }).length;
+    html += '<div class="tiles eight">' +
+      homeTile('inbox', 'Inbox', sel.inbox().length) + homeTile('today', 'Today', sel.today().length) + homeTile('urgent', 'Most important', sel.urgent().length, sel.urgent().length ? 'alert' : '') + homeTile('followup', 'Follow-up', sel.waiting().length) +
+      homeTile('delegated', 'Delegated', deleg) + homeTile('someday', 'Someday', sel.someday().length) + homeTile('logbook', 'Done', sel.doneToday().length) + homeTile('paused', 'Paused', sel.paused().length) + '</div>';
+    html += section('My priorities', null, '<button class="link-btn" data-act="newLifePri">+ Add</button>') +
+      '<div class="pri-chips">' + db.lifePriorities.map(function (p, i) { return '<button class="pri-chip" data-act="editLifePri" data-i="' + i + '"><b>' + (i + 1) + '</b>' + esc(p) + '</button>'; }).join('') + '</div>';
+    if (db.habits.length) {
+      html += section('Habits today', db.habits.filter(function (h) { return h.done[t]; }).length + '/' + db.habits.length, '<button class="link-btn" data-go="habits">All</button>') + '<div class="list">' + db.habits.map(function (h) {
+        var on = !!h.done[t];
+        return '<div class="task' + (on ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + on + '" data-act="toggleHabit" data-id="' + esc(h.id) + '" data-date="' + t + '" aria-label="' + esc(h.name) + ' today"><span class="box">' + ICON.tick + '</span></button><button class="task-body" data-go="habits"><span class="task-title">' + esc(h.name) + '</span></button></div>';
+      }).join('') + '</div>';
+    }
+    var top = db.tasks.filter(function (x) { return active(x) && x.list !== 'someday' && (x.priority === 'urgent' || x.priority === 'high') && (!x.date || x.date <= addDays(t, 2)); })
+      .sort(function (a, b) { return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || ((a.date || '9') < (b.date || '9') ? -1 : 1); }).slice(0, 5);
+    html += section('Top tasks', top.length) + taskList(top, 'home-top', 'No urgent or high-priority tasks.', { sortable: false });
+    var timed = sel.onDate(t).filter(function (x) { return x.time; });
+    if (timed.length) html += section('Today’s schedule', null, '<button class="link-btn" data-go="calendar">Calendar</button>') + '<div class="card pad stack">' + timed.map(function (x) { return '<button class="tblock' + (x.done ? ' done' : '') + '" data-act="editTask" data-id="' + esc(x.id) + '"><div class="t">' + esc(x.time) + '</div>' + esc(x.title) + '</button>'; }).join('') + '</div>';
+    html += section('Sections') + '<div class="shortcuts">' + HOME_LINKS.map(function (r) { return '<button class="shortcut" data-go="' + r + '">' + ICON[ROUTES[r].icon] + '<span>' + esc(ROUTES[r].title.split(' ·')[0].replace('Travel planner', 'Travel').replace('Income & Expenses', 'Money')) + '</span></button>'; }).join('') + '</div>';
+    html += '<div class="card pad safe-quick"><span class="row">' + ICON.lock + '<span><strong>Safe notes</strong><span class="muted small" style="display:block">' + (Vault.unlocked() ? (Vault.records.length + ' records · unlocked') : (Vault.exists() ? 'Locked' : 'Not set up')) + '</span></span></span><span class="row"><button class="tiny-btn" data-go="safe">Open</button><button class="tiny-btn" data-act="homeSafeAdd">+ Add</button></span></div>';
+    var es = earnedSpent(), cur = S.currency;
+    html += section('Money this month', null, '<button class="link-btn" data-go="finance">Open</button>') + '<div class="grid2"><div class="tile static"><div class="l">Earned</div><div class="n pos money">' + esc(fmtMoney(es.earned, cur)) + '</div></div><div class="tile static"><div class="l">Spent</div><div class="n money">' + esc(fmtMoney(es.spent, cur)) + '</div></div></div>';
+    return html;
+  };
+  function lifePriForm(i) {
+    var editing = i != null, v = editing ? db.lifePriorities[i] : '';
+    openSheet(editing ? 'Edit priority' : 'New priority', '<form data-form="lifePri" data-i="' + (editing ? i : '') + '" novalidate><label class="field"><span>Priority</span><input name="name" value="' + esc(v) + '" required maxlength="40" autofocus></label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (editing ? '<div class="btn-row"><button type="button" class="btn plain" data-act="moveLifePri" data-i="' + i + '" data-d="-1">Move up</button><button type="button" class="btn plain" data-act="moveLifePri" data-i="' + i + '" data-d="1">Move down</button></div><button type="button" class="btn danger block" data-act="deleteLifePri" data-i="' + i + '">Delete</button>' : '') + '</div></form>');
+  }
+  submitters.lifePri = function (form) {
+    var v = val(form, 'name'); if (!v) return;
+    if (form.dataset.i !== '') db.lifePriorities[+form.dataset.i] = v; else db.lifePriorities.push(v);
+    save(); closeSheet(); render();
+  };
+  actions.newLifePri = function () { lifePriForm(null); };
+  actions.editLifePri = function (el) { lifePriForm(+el.dataset.i); };
+  actions.moveLifePri = function (el) {
+    var i = +el.dataset.i, j = i + (+el.dataset.d), a = db.lifePriorities; if (j < 0 || j >= a.length) return;
+    var x = a[i]; a[i] = a[j]; a[j] = x; save(); closeSheet(); render();
+  };
+  actions.deleteLifePri = function (el) { db.lifePriorities.splice(+el.dataset.i, 1); save(); closeSheet(); render(); };
+
+  /* ---------- task form: Inbox by default, title + description first ---------- */
+  var _taskForm4 = taskForm;
+  taskForm = function (t, ctx) {
+    ctx = Object.assign({}, ctx || {}); delete ctx.list;
+    _taskForm4(t, ctx);
+    var form = $('#sheet form[data-form=task]'); if (!form) return;
+    var notes = form.elements.notes.closest('.field'), err = $('#taskErr', form);
+    notes.querySelector('span').textContent = 'Description';
+    err.parentNode.insertBefore(notes, err.nextSibling);
+  };
+
+  /* ---------- Dictate: never hang. iPhone home-screen apps use the keyboard mic ---------- */
+  var IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var rec4 = null;
+  actions.dictate = function (el) {
+    var field = el.dataset.target ? $(el.dataset.target) : null;
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    function keyboardMic() { if (field) { field.focus(); try { field.setSelectionRange(field.value.length, field.value.length); } catch (e) { /* ignore */ } } toast('Tap 🎤 on the keyboard to dictate'); }
+    if (!SR || (IOS && navigator.standalone)) { keyboardMic(); return; }
+    if (rec4) { try { rec4.abort(); } catch (e) { /* ignore */ } return; }
+    if (!field) return;
+    var r = new SR(), started = false, base = field.value ? field.value.replace(/\s*$/, field.tagName === 'TEXTAREA' ? '\n' : ' ') : '', fin = '';
+    rec4 = r; r.lang = db.settings.voiceLang || 'ru-RU'; r.interimResults = true; r.continuous = false;
+    function done() { clearTimeout(watch); clearTimeout(cap); el.classList.remove('listening'); if (rec4 === r) rec4 = null; }
+    var watch = setTimeout(function () { if (!started) { try { r.abort(); } catch (e) { /* ignore */ } done(); keyboardMic(); } }, 4000);
+    var cap = setTimeout(function () { try { r.stop(); } catch (e) { /* ignore */ } }, 30000);
+    r.onstart = function () { started = true; };
+    r.onaudiostart = function () { started = true; };
+    r.onresult = function (e) {
+      started = true; var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) { if (e.results[i].isFinal) fin += e.results[i][0].transcript; else interim += e.results[i][0].transcript; }
+      field.value = base + fin + interim; field.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    r.onerror = function (e) { done(); if (e.error === 'not-allowed' || e.error === 'service-not-allowed') keyboardMic(); else if (e.error !== 'aborted' && e.error !== 'no-speech') toast('Voice input stopped (' + e.error + ')'); };
+    r.onend = done;
+    el.classList.add('listening');
+    try { r.start(); } catch (err) { done(); keyboardMic(); }
+  };
+
+  /* ---------- keyboard never covers the sheet ---------- */
+  function fitViewport() {
+    var vv = window.visualViewport; if (!vv) return;
+    var kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty('--kb', kb + 'px');
+    document.documentElement.style.setProperty('--vvh', vv.height + 'px');
+    document.body.classList.toggle('kb-open', kb > 80);
+  }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', fitViewport); visualViewport.addEventListener('scroll', fitViewport); }
+  document.addEventListener('focusin', function (e) {
+    var el = e.target; if (!el.matches || !el.matches('input, textarea, select')) return;
+    setTimeout(function () { fitViewport(); try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (x) { el.scrollIntoView(); } }, 320);
+  });
+
+  /* ---------- + chooser: Balance record ---------- */
+  chooser = function () {
+    var items = [['task', 'Task', ICON.task], ['assistant', 'Assistant', ICON.spark], ['note', 'Note', ICON.note], ['safe', 'Safe', ICON.lock], ['income', 'Income', ICON.income], ['expense', 'Expense', ICON.expense], ['balance', 'Balance', ICON.finance], ['bookmark', 'Bookmark', ICON.bookmarks]];
+    openSheet('Add new', '<div class="chooser">' + items.map(function (x) { return '<button type="button" class="choice" data-act="choose" data-kind="' + x[0] + '">' + x[2] + x[1] + '</button>'; }).join('') + '</div>');
+  };
+  var _choose4 = actions.choose;
+  actions.choose = function (el) {
+    var k = el.dataset.kind;
+    if (k === 'assistant') { closeSheet(true); assistantSheet(); return; }
+    if (k === 'balance') { closeSheet(true); actions.recordBalances({ dataset: {} }); return; }
+    _choose4(el);
+  };
+
+  /* ---------- AI assistant (on-device parser; cloud AI comes with the server) ---------- */
+  var WEEKDAYS = { 'понедельник': 1, 'пн': 1, 'monday': 1, 'вторник': 2, 'вт': 2, 'tuesday': 2, 'среду': 3, 'среда': 3, 'ср': 3, 'wednesday': 3, 'четверг': 4, 'чт': 4, 'thursday': 4, 'пятницу': 5, 'пятница': 5, 'пт': 5, 'friday': 5, 'субботу': 6, 'суббота': 6, 'сб': 6, 'saturday': 6, 'воскресенье': 0, 'вс': 0, 'sunday': 0 };
+  var CUR_WORDS = [[/(₽|руб|rub|(?:^|[\s\d])р\.?(?=\s|$))/i, 'RUB'], [/(\$|usd|доллар\w*|бакс\w*)/i, 'USD'], [/(€|eur|евро)/i, 'EUR'], [/(idr|рупи\w*)/i, 'IDR']];
+  function takeDate(s) {
+    var t = today(), m, date = '';
+    var rules = [
+      [/\s(послезавтра|day after tomorrow)(?=[\s,.!?]|$)/i, function () { return addDays(t, 2); }],
+      [/\s(сегодня|today)(?=[\s,.!?]|$)/i, function () { return t; }],
+      [/\s(завтра|tomorrow)(?=[\s,.!?]|$)/i, function () { return addDays(t, 1); }]
+    ];
+    for (var i = 0; i < rules.length; i++) if ((m = s.match(rules[i][0]))) { date = rules[i][1](); s = s.replace(m[0], ' '); return { s: s, date: date }; }
+    if ((m = s.match(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b/))) {
+      var y = m[3] ? (m[3].length === 2 ? '20' + m[3] : m[3]) : String(new Date().getFullYear());
+      date = y + '-' + pad(+m[2]) + '-' + pad(+m[1]); if (!m[3] && date < t) date = (+y + 1) + date.slice(4);
+      return { s: s.replace(m[0], ' '), date: date };
+    }
+    m = s.match(/(?:\s(?:в|во|on|next))?\s(понедельник|вторник|среду|среда|четверг|пятницу|пятница|субботу|суббота|воскресенье|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?=[\s,.!?]|$)/i);
+    if (m) {
+      var wd = WEEKDAYS[m[1].toLowerCase()], d = parseYmd(t), diff = (wd - d.getDay() + 7) % 7 || 7;
+      return { s: s.replace(m[0], ' '), date: addDays(t, diff) };
+    }
+    return { s: s, date: '' };
+  }
+  function parseItem(raw) {
+    var s = ' ' + raw.trim() + ' ', low = s.toLowerCase(), item = { kind: 'task', f: {} }, m;
+    var kinds = [[/^\s*(заметка|note)[:\s]/i, 'note'], [/^\s*(расход|потратил[аи]?|трата|expense|spent)[:\s]/i, 'expense'], [/^\s*(доход|получил[аи]?|income|earned)[:\s]/i, 'income'],
+      [/^\s*(закладка|bookmark)[:\s]/i, 'bookmark'], [/^\s*(привычка|habit)[:\s]/i, 'habit'], [/^\s*(посмотреть|прочитать|послушать|watch|read|listen)[:\s]/i, 'media'],
+      [/^\s*(задача|task|todo)[:\s]/i, 'task'], [/^\s*(перенеси|move)\s/i, 'move'], [/^\s*(готово|выполнено|сделано|done)[:\s]/i, 'complete']];
+    for (var i = 0; i < kinds.length; i++) if ((m = s.match(kinds[i][0]))) { item.kind = kinds[i][1]; if (item.kind !== 'move') s = s.slice(m[0].length); break; }
+    if (item.kind === 'task' && /^\s*https?:\/\/\S+\s*$/i.test(s)) item.kind = 'bookmark';
+    if (item.kind === 'expense' || item.kind === 'income') {
+      var num = s.match(/(\d[\d\s]*(?:[.,]\d+)?)\s*(k|к|тыс\w*)?/i);
+      var amount = num ? parseFloat(num[1].replace(/\s/g, '').replace(',', '.')) * (num[2] ? 1000 : 1) : 0, cur = db.settings.currency;
+      CUR_WORDS.forEach(function (c) { if (c[0].test(s)) cur = c[1]; });
+      var cat = s.replace(num ? num[0] : '', ' ').replace(/(^|\s)(₽|руб[а-яё.]*|р\.?|rub|\$|usd|доллар[а-яё]*|бакс[а-яё]*|€|eur|евро|idr|рупи[а-яё]*|на|for)(?=\s|$)/gi, ' ').replace(/[₽$€]/g, ' ').replace(/\s+/g, ' ').trim();
+      item.f = { amount: amount, currency: cur, category: cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Other', date: today() };
+      return item;
+    }
+    if (item.kind === 'move') {
+      m = s.match(/^\s*(?:перенеси|move)\s+(.+?)\s+(?:на|to)\s+(.+)$/i);
+      if (!m) { item.kind = 'task'; } else {
+        var dt = takeDate(' ' + m[2] + ' '); item.f = { query: m[1].trim(), date: dt.date }; return item;
+      }
+    }
+    if (item.kind === 'complete') { item.f = { query: s.trim() }; return item; }
+    if (item.kind === 'bookmark') { var u = s.match(/https?:\/\/\S+|\b[\w-]+\.[a-z]{2,}\S*/i); item.f = { url: u ? normUrl(u[0]) : '', title: s.replace(u ? u[0] : '', '').trim() }; return item; }
+    if (item.kind === 'note' || item.kind === 'habit' || item.kind === 'media') { item.f = { text: s.trim() }; return item; }
+    var d = takeDate(s); s = d.s; item.f.date = d.date;
+    if ((m = s.match(/(?:\s(?:в|at))?\s([01]?\d|2[0-3])[:.]([0-5]\d)(?=\D|$)/i))) { item.f.time = pad(+m[1]) + ':' + m[2]; s = s.replace(m[0], ' '); }
+    if (/(^|\s)(!+|срочно|важно|urgent|asap)(?=\s|$)/i.test(s)) { item.f.priority = 'urgent'; s = s.replace(/(^|\s)(!+|срочно|важно|urgent|asap)(?=\s|$)/gi, ' '); }
+    s = s.replace(/#([\wА-Яа-яЁё/-]+)/g, function (all, tag) {
+      var a = db.areas.filter(function (x) { return x.name.toLowerCase() === tag.toLowerCase(); })[0];
+      var p = db.projects.filter(function (x) { return x.name.toLowerCase().replace(/\s+/g, '') === tag.toLowerCase(); })[0];
+      if (p) item.f.project = p.id; else if (a) item.f.area = a.id; return ' ';
+    });
+    s = s.replace(/@([\wА-Яа-яЁё-]+)/g, function (all, n) { item.f.delegatedTo = n; return ' '; });
+    var title = s.replace(/\s+/g, ' ').trim();
+    item.f.title = title.charAt(0).toUpperCase() + title.slice(1);
+    return item;
+  }
+  function findTask(q) {
+    q = q.toLowerCase();
+    return db.tasks.filter(function (t) { return !t.done && t.title.toLowerCase().indexOf(q) >= 0; })[0] || null;
+  }
+  function describe(it) {
+    var f = it.f, bits = [];
+    if (it.kind === 'task') { bits.push(esc(f.title || '(no title)')); if (f.date) bits.push(fmtDate(f.date)); if (f.time) bits.push(f.time); if (f.priority) bits.push('Urgent'); if (f.project) bits.push((project(f.project) || {}).name); if (f.area) bits.push(label(areasList(), f.area)); if (f.delegatedTo) bits.push('→ ' + esc(f.delegatedTo)); }
+    else if (it.kind === 'expense' || it.kind === 'income') bits.push(esc(fmtMoney(f.amount, f.currency)), esc(f.category));
+    else if (it.kind === 'bookmark') bits.push(esc(f.url || '(no link)'));
+    else if (it.kind === 'move') { var t = findTask(f.query); bits.push(t ? esc(t.title) + ' → ' + (f.date ? fmtDate(f.date) : '?') : 'No open task matches “' + esc(f.query) + '”'); }
+    else if (it.kind === 'complete') { var t2 = findTask(f.query); bits.push(t2 ? esc(t2.title) : 'No open task matches “' + esc(f.query) + '”'); }
+    else bits.push(esc(f.text));
+    var names = { task: 'Task', note: 'Note', expense: 'Expense', income: 'Income', bookmark: 'Bookmark', habit: 'Habit', media: 'Watch/Read', move: 'Reschedule', complete: 'Complete' };
+    return '<span class="chip accent">' + names[it.kind] + '</span> ' + bits.filter(Boolean).join(' · ');
+  }
+  function assistantSheet() {
+    openSheet('Assistant', '<form data-form="assistant" novalidate><p class="hint" style="margin-top:0">Type or dictate. Each sentence or line is one item. Examples: “Позвонить в банк завтра в 10:00 !”, “Расход 1200 руб такси”, “Заметка: идеи для поездки”, “Перенеси звонок в банк на пятницу”, “Готово звонок в банк”. Use #Area or #Project and @Name.</p>' +
+      '<div class="field has-mic"><textarea id="aiText" name="text" rows="4" placeholder="What should I add or change?" autofocus></textarea>' + micBtn('#aiText') + '</div>' +
+      '<div id="aiPreview" class="ai-preview"></div><div class="actions"><button class="btn block" type="submit">Apply</button></div></form>');
+  }
+  function aiItems(text) { return text.replace(/([.?;])\s+/g, '$1\n').split(/\n+/).map(function (x) { return x.replace(/[.;?]+\s*$/, '').trim(); }).filter(Boolean).map(parseItem); }
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'aiText') return;
+    var items = aiItems(e.target.value), box = $('#aiPreview');
+    if (box) box.innerHTML = items.length ? '<div class="muted small">I’ll do this:</div>' + items.map(function (it) { return '<div class="ai-item">' + describe(it) + '</div>'; }).join('') : '';
+  });
+  actions.openAssistant = function () { closeMenu(); assistantSheet(); };
+  submitters.assistant = function (form) {
+    var items = aiItems(form.elements.text.value); if (!items.length) { toast('Type or dictate something first'); return; }
+    var made = 0, o = minOrder();
+    items.forEach(function (it, i) {
+      var f = it.f;
+      if (it.kind === 'task' && f.title) {
+        var p = f.project && project(f.project);
+        db.tasks.push({ id: uid(), title: f.title.slice(0, 300), notes: '', list: 'inbox', date: f.date || '', time: f.time || '', priority: f.priority || 'medium', status: 'todo', done: false, completedAt: '', area: p ? p.area : (f.area || ''), project: f.project || '', repeat: '', subtasks: [], photos: [], delegatedTo: f.delegatedTo || '', order: o - items.length + i, createdAt: Date.now() });
+        if (f.delegatedTo && db.settings.assistants.indexOf(f.delegatedTo) < 0) db.settings.assistants.push(f.delegatedTo);
+        made++;
+      } else if ((it.kind === 'expense' || it.kind === 'income') && f.amount > 0) {
+        db.finance.push({ id: uid(), kind: it.kind, type: 'actual', date: f.date, amount: f.amount, currency: f.currency, category: f.category, note: '' }); made++;
+      } else if (it.kind === 'note' && f.text) {
+        db.notes.push({ id: uid(), title: f.text.split('\n')[0].slice(0, 60), body: f.text, area: '', project: '', pinned: false, createdAt: Date.now(), updatedAt: Date.now(), photos: [], links: [] }); made++;
+      } else if (it.kind === 'bookmark' && f.url) {
+        db.bookmarks.push({ id: uid(), url: f.url, title: f.title || host(f.url), tag: '', note: '', createdAt: Date.now() }); made++;
+      } else if (it.kind === 'habit' && f.text) {
+        db.habits.push({ id: 'hb_' + uid(), name: f.text, createdAt: Date.now(), done: {} }); made++;
+      } else if (it.kind === 'media' && f.text) {
+        db.media.push({ id: uid(), title: f.text, type: /прочитать|read/i.test(form.elements.text.value) ? 'Book' : /послушать|listen/i.test(form.elements.text.value) ? 'Music' : 'Movie', link: '', by: '', status: 'To do', note: '', createdAt: Date.now() }); made++;
+      } else if (it.kind === 'move') {
+        var t = findTask(f.query); if (t && f.date) { t.date = f.date; made++; }
+      } else if (it.kind === 'complete') {
+        var t2 = findTask(f.query); if (t2) { completeTask(t2); made++; }
+      }
+    });
+    save(); closeSheet(); render();
+    toast(made ? 'Done: ' + made + ' change' + (made > 1 ? 's' : '') : 'Nothing matched. Try “task …”, “expense 500 taxi”, “note …”');
+  };
+
+  /* ---------- Travel planner ---------- */
+  var TRIP_STATUS = ['Idea', 'Planning', 'Booked', 'Done'];
+  function tripCard(tr) {
+    var t = today(), days = tr.start ? Math.round((utcDay(tr.start) - utcDay(t)) / 86400000) : null;
+    var cl = tr.checklist || [], dn = cl.filter(function (c) { return c.done; }).length;
+    var when = tr.start ? fmtDate(tr.start, { full: true }) + (tr.end ? ' – ' + fmtDate(tr.end, { full: true }) : '') : 'No dates yet';
+    return '<button class="item-card" data-go="trip" data-id="' + esc(tr.id) + '"><div class="row between"><h3>' + esc(tr.title) + '</h3><span class="chip' + (tr.status === 'Booked' ? ' good' : tr.status === 'Done' ? '' : ' accent') + '">' + esc(tr.status) + '</span></div>' +
+      '<div class="meta">' + (tr.destination ? '<span>' + esc(tr.destination) + '</span>' : '') + '<span>' + esc(when) + '</span>' + (days != null && days > 0 && tr.status !== 'Done' ? '<span class="chip">in ' + days + ' days</span>' : '') + (cl.length ? '<span>✓ ' + dn + '/' + cl.length + '</span>' : '') + '</div></button>';
+  }
+  screens.travel = function () {
+    var t = today(), trips = db.trips.slice();
+    var upcoming = trips.filter(function (x) { return x.status !== 'Done' && x.start && (x.end || x.start) >= t; }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+    var ideas = trips.filter(function (x) { return x.status !== 'Done' && !x.start; });
+    var past = trips.filter(function (x) { return upcoming.indexOf(x) < 0 && ideas.indexOf(x) < 0; }).sort(function (a, b) { return (b.start || '') < (a.start || '') ? -1 : 1; });
+    var html = head('Travel planner', 'Plan trips, dates, budget and a checklist.', '<button class="btn ghost" data-act="newTrip">+ Trip</button>');
+    if (!trips.length) return html + '<div class="empty">No trips yet. Tap + Trip to plan the next one.</div>';
+    if (upcoming.length) html += section('Upcoming', upcoming.length) + upcoming.map(tripCard).join('');
+    if (ideas.length) html += section('Ideas', ideas.length) + ideas.map(tripCard).join('');
+    if (past.length) html += section('Past', past.length) + past.map(tripCard).join('');
+    return html;
+  };
+  screens.trip = function (id) {
+    var tr = byId(db.trips, id); if (!tr) return notFound('This trip was deleted.');
+    var cl = tr.checklist || [];
+    var html = head(tr.title, esc(tr.destination || ''), '<button class="btn plain" data-act="editTrip" data-id="' + esc(id) + '">Edit</button>');
+    html += '<div class="card pad stack"><div class="row between"><span class="muted">Dates</span><strong>' + (tr.start ? esc(fmtDate(tr.start, { full: true })) + (tr.end ? ' – ' + esc(fmtDate(tr.end, { full: true })) : '') : '—') + '</strong></div>' +
+      '<div class="row between"><span class="muted">Status</span><span class="chip accent">' + esc(tr.status) + '</span></div>' +
+      (tr.budget ? '<div class="row between"><span class="muted">Budget</span><strong class="money">' + esc(fmtMoney(tr.budget, tr.currency)) + '</strong></div>' : '') +
+      (tr.notes ? '<div style="white-space:pre-wrap">' + esc(tr.notes) + '</div>' : '') + '</div>';
+    html += section('Checklist', cl.filter(function (c) { return c.done; }).length + '/' + cl.length);
+    html += '<div class="list">' + cl.map(function (c) {
+      return '<div class="task' + (c.done ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + c.done + '" data-act="tripItem" data-id="' + esc(id) + '" data-item="' + esc(c.id) + '" aria-label="' + esc(c.text) + '"><span class="box">' + ICON.tick + '</span></button><span class="task-body"><span class="task-title">' + esc(c.text) + '</span></span><button class="tiny-btn" style="margin:8px" data-act="tripItemDel" data-id="' + esc(id) + '" data-item="' + esc(c.id) + '" aria-label="Remove">✕</button></div>';
+    }).join('') + '</div>';
+    html += '<form class="inline-btn" style="margin-top:10px" data-form="tripItem" data-id="' + esc(id) + '"><input class="input" name="text" placeholder="Add: passport, tickets, hotel…" aria-label="New checklist item"><button class="tiny-btn" type="submit">Add</button></form>';
+    return html;
+  };
+  function tripForm(tr) {
+    var isNew = !tr; tr = tr || { title: '', destination: '', start: '', end: '', status: 'Idea', budget: '', currency: db.settings.currency, notes: '' };
+    openSheet(isNew ? 'New trip' : 'Edit trip', '<form data-form="trip" data-id="' + esc(isNew ? '' : tr.id) + '" novalidate>' +
+      '<label class="field"><span>Trip name</span><input name="title" value="' + esc(tr.title) + '" required autofocus placeholder="e.g. Ski week in Japan"></label><p class="hint" id="tripErr" role="alert" style="color:var(--bad)"></p>' +
+      '<label class="field"><span>Destination</span><input name="destination" value="' + esc(tr.destination) + '" placeholder="City, country"></label>' +
+      '<div class="fields2"><label class="field"><span>From</span><input type="date" name="start" value="' + esc(tr.start) + '"></label><label class="field"><span>To</span><input type="date" name="end" value="' + esc(tr.end) + '"></label></div>' +
+      '<div class="fields2"><label class="field"><span>Budget</span><input type="number" step="any" min="0" name="budget" value="' + esc(tr.budget) + '"></label><label class="field"><span>Currency</span><select name="currency">' + options(CURRENCIES, tr.currency) + '</select></label></div>' +
+      '<label class="field"><span>Status</span><select name="status">' + options(TRIP_STATUS, tr.status) + '</select></label>' +
+      '<label class="field"><span>Notes</span><textarea name="notes" rows="3">' + esc(tr.notes) + '</textarea></label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save trip</button>' + (isNew ? '' : '<button type="button" class="btn danger block" data-act="deleteTrip" data-id="' + esc(tr.id) + '">Delete trip</button>') + '</div></form>');
+  }
+  submitters.trip = function (form) {
+    var title = val(form, 'title'); if (!title) { $('#tripErr').textContent = 'Name the trip.'; return; }
+    var start = val(form, 'start'), end = val(form, 'end'); if (start && end && end < start) { $('#tripErr').textContent = 'The end date is before the start date.'; return; }
+    var tr = form.dataset.id ? byId(db.trips, form.dataset.id) : { id: 'trip_' + uid(), checklist: [], createdAt: Date.now() };
+    Object.assign(tr, { title: title, destination: val(form, 'destination'), start: start, end: end, budget: parseFloat(val(form, 'budget')) || 0, currency: val(form, 'currency'), status: val(form, 'status'), notes: val(form, 'notes') });
+    if (!form.dataset.id) db.trips.push(tr);
+    save(); closeSheet(); if (!form.dataset.id) go('trip', tr.id); else render(); toast('Trip saved');
+  };
+  submitters.tripItem = function (form) {
+    var tr = byId(db.trips, form.dataset.id), v = val(form, 'text'); if (!tr || !v) return;
+    tr.checklist.push({ id: uid(), text: v, done: false }); save(); render(); var i = $('form[data-form=tripItem] input'); if (i) i.focus();
+  };
+  actions.newTrip = function () { tripForm(null); };
+  actions.editTrip = function (el) { var tr = byId(db.trips, el.dataset.id); if (tr) tripForm(tr); };
+  actions.deleteTrip = function (el) { if (!confirm('Delete this trip?')) return; db.trips = db.trips.filter(function (x) { return x.id !== el.dataset.id; }); save(); closeSheet(); toast('Trip deleted'); if (ui.route.name === 'trip') back(); else render(); };
+  actions.tripItem = function (el) { var tr = byId(db.trips, el.dataset.id), c = tr && byId(tr.checklist, el.dataset.item); if (c) { c.done = !c.done; save(); render(); } };
+  actions.tripItemDel = function (el) { var tr = byId(db.trips, el.dataset.id); if (tr) { tr.checklist = tr.checklist.filter(function (c) { return c.id !== el.dataset.item; }); save(); render(); } };
+
+  /* ---------- Friends: keep in touch ---------- */
+  var CADENCE = [[7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every month'], [90, 'Every 3 months'], [182, 'Every 6 months'], [365, 'Once a year']];
+  function friendDue(f) { if (!f.last) return -1; return Math.round((utcDay(addDays(f.last, f.cadence)) - utcDay(today())) / 86400000); }
+  function contactHref(c) {
+    c = (c || '').trim(); if (!c) return '';
+    if (/^@/.test(c)) return 'https://t.me/' + c.slice(1);
+    if (/^\+?[\d\s()-]{7,}$/.test(c)) return 'tel:' + c.replace(/[^\d+]/g, '');
+    if (/@/.test(c)) return 'mailto:' + c;
+    return /^https?:/i.test(c) ? c : '';
+  }
+  screens.friends = function () {
+    var list = db.friends.slice().sort(function (a, b) { return friendDue(a) - friendDue(b); });
+    var html = head('Friends', 'People to keep in touch with regularly.', '<button class="btn ghost" data-act="newFriend">+ Friend</button>');
+    if (!list.length) return html + '<div class="empty">Add the people you want to stay close to and how often to reach out.</div>';
+    return html + list.map(function (f) {
+      var due = friendDue(f), href = contactHref(f.contact);
+      var status = !f.last ? '<span class="chip accent">Reach out</span>' : due < 0 ? '<span class="chip overdue">' + (-due) + ' days overdue</span>' : due === 0 ? '<span class="chip accent">Today</span>' : '<span class="chip">in ' + due + ' days</span>';
+      return '<div class="card pad friend" data-friend="' + esc(f.id) + '"><div class="row between"><button class="habit-name" data-act="editFriend" data-id="' + esc(f.id) + '">' + esc(f.name) + '</button>' + status + '</div>' +
+        '<div class="meta" style="margin-top:4px"><span>' + esc(label(CADENCE, f.cadence) || '') + '</span><span>' + (f.last ? 'Last: ' + esc(fmtDate(f.last, { full: true })) : 'No contact logged') + '</span>' + (f.birthday ? '<span>🎂 ' + esc(fmtDate(f.birthday, { full: true })) + '</span>' : '') + '</div>' +
+        '<div class="btn-row" style="margin-top:10px">' + (href ? '<a class="tiny-btn link-tiny" href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(f.contact) + '</a>' : '') + '<button class="tiny-btn" data-act="friendContacted" data-id="' + esc(f.id) + '">✓ Contacted today</button></div></div>';
+    }).join('');
+  };
+  function friendForm(f) {
+    var isNew = !f; f = f || { name: '', contact: '', cadence: 30, last: '', birthday: '', notes: '' };
+    openSheet(isNew ? 'New friend' : 'Edit friend', '<form data-form="friend" data-id="' + esc(isNew ? '' : f.id) + '" novalidate>' +
+      '<label class="field"><span>Name</span><input name="name" value="' + esc(f.name) + '" required autofocus></label><p class="hint" id="friendErr" role="alert" style="color:var(--bad)"></p>' +
+      '<label class="field"><span>Phone, @telegram or email</span><input name="contact" value="' + esc(f.contact) + '" autocapitalize="off"></label>' +
+      '<label class="field"><span>Reach out</span><select name="cadence">' + options(CADENCE, f.cadence) + '</select></label>' +
+      '<div class="fields2"><label class="field"><span>Last contact</span><input type="date" name="last" value="' + esc(f.last) + '"></label><label class="field"><span>Birthday</span><input type="date" name="birthday" value="' + esc(f.birthday) + '"></label></div>' +
+      '<label class="field"><span>Notes</span><textarea name="notes" rows="3" placeholder="Kids’ names, what you talked about…">' + esc(f.notes) + '</textarea></label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (isNew ? '' : '<button type="button" class="btn danger block" data-act="deleteFriend" data-id="' + esc(f.id) + '">Delete</button>') + '</div></form>');
+  }
+  submitters.friend = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#friendErr').textContent = 'Add a name.'; return; }
+    var f = form.dataset.id ? byId(db.friends, form.dataset.id) : { id: 'fr_' + uid() };
+    Object.assign(f, { name: name, contact: val(form, 'contact'), cadence: +val(form, 'cadence') || 30, last: val(form, 'last'), birthday: val(form, 'birthday'), notes: val(form, 'notes') });
+    if (!form.dataset.id) db.friends.push(f);
+    save(); closeSheet(); render(); toast('Saved');
+  };
+  actions.newFriend = function () { friendForm(null); };
+  actions.editFriend = function (el) { var f = byId(db.friends, el.dataset.id); if (f) friendForm(f); };
+  actions.deleteFriend = function (el) { if (!confirm('Remove this person from the list?')) return; db.friends = db.friends.filter(function (x) { return x.id !== el.dataset.id; }); save(); closeSheet(); render(); };
+  actions.friendContacted = function (el) { var f = byId(db.friends, el.dataset.id); if (f) { f.last = today(); save(); render(); toast('Logged: contacted ' + f.name); } };
+
+  /* ---------- Watch · Read · Listen ---------- */
+  var MEDIA_TYPES = ['Movie', 'Series', 'Book', 'Lecture', 'YouTube', 'Music', 'Podcast'];
+  var MEDIA_STATUS = ['To do', 'In progress', 'Done'];
+  Object.assign(ui, { mediaType: '', mediaStatus: 'To do' });
+  screens.media = function () {
+    var ty = ui.mediaType, st = ui.mediaStatus;
+    var items = db.media.filter(function (m) { return (!ty || m.type === ty) && m.status === st; }).sort(function (a, b) { return b.createdAt - a.createdAt; });
+    var html = head('Watch · Read · Listen', 'Movies, books, lectures, videos and music to get to.', '<button class="btn ghost" data-act="newMedia">+ Add</button>');
+    html += '<div class="seg" role="group" aria-label="Status">' + MEDIA_STATUS.map(function (s) { return '<button data-act="mediaStatus" data-v="' + esc(s) + '" aria-pressed="' + (s === st) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
+    html += '<div class="chips">' + [''].concat(MEDIA_TYPES).map(function (t) { return '<button class="chip-btn" data-act="mediaType" data-v="' + esc(t) + '" aria-pressed="' + (t === ty) + '">' + esc(t || 'All') + '</button>'; }).join('') + '</div>';
+    if (!items.length) return html + '<div class="empty">Nothing here yet.</div>';
+    return html + '<div class="list">' + items.map(function (m) {
+      return '<div class="bm"><button class="check" role="checkbox" aria-checked="' + (m.status === 'Done') + '" data-act="mediaDone" data-id="' + esc(m.id) + '" aria-label="Mark ' + esc(m.title) + ' done"><span class="box">' + ICON.tick + '</span></button>' +
+        '<button class="media-body" data-act="editMedia" data-id="' + esc(m.id) + '"><strong>' + esc(m.title) + '</strong><span class="muted small">' + esc(m.type) + (m.by ? ' · ' + esc(m.by) : '') + (m.note ? ' · ' + esc(m.note) : '') + '</span></button>' +
+        (m.link ? '<a class="tiny-btn link-tiny" href="' + esc(m.link) + '" target="_blank" rel="noopener noreferrer">Open</a>' : '') + '</div>';
+    }).join('') + '</div>';
+  };
+  function mediaForm(m) {
+    var isNew = !m; m = m || { title: '', type: ui.mediaType || 'Movie', link: '', by: '', status: 'To do', note: '' };
+    openSheet(isNew ? 'Add to watch / read / listen' : 'Edit', '<form data-form="media" data-id="' + esc(isNew ? '' : m.id) + '" novalidate>' +
+      '<label class="field"><span>Title</span><input name="title" value="' + esc(m.title) + '" required autofocus></label><p class="hint" id="mediaErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="fields2"><label class="field"><span>Type</span><select name="type">' + options(MEDIA_TYPES, m.type) + '</select></label><label class="field"><span>Status</span><select name="status">' + options(MEDIA_STATUS, m.status) + '</select></label></div>' +
+      '<label class="field"><span>Link</span><input name="link" value="' + esc(m.link) + '" inputmode="url" autocapitalize="off" placeholder="YouTube, Kinopoisk, Spotify…"></label>' +
+      '<label class="field"><span>Author / director / artist</span><input name="by" value="' + esc(m.by) + '"></label>' +
+      '<label class="field"><span>Note</span><input name="note" value="' + esc(m.note) + '" placeholder="Who recommended it, why"></label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (isNew ? '' : '<button type="button" class="btn danger block" data-act="deleteMedia" data-id="' + esc(m.id) + '">Delete</button>') + '</div></form>');
+  }
+  submitters.media = function (form) {
+    var title = val(form, 'title'); if (!title) { $('#mediaErr').textContent = 'Add a title.'; return; }
+    var m = form.dataset.id ? byId(db.media, form.dataset.id) : { id: 'md_' + uid(), createdAt: Date.now() };
+    Object.assign(m, { title: title, type: val(form, 'type'), status: val(form, 'status'), link: val(form, 'link') ? normUrl(val(form, 'link')) : '', by: val(form, 'by'), note: val(form, 'note') });
+    if (!form.dataset.id) db.media.push(m);
+    ui.mediaStatus = m.status; save(); closeSheet(); render(); toast('Saved');
+  };
+  actions.newMedia = function () { mediaForm(null); };
+  actions.editMedia = function (el) { var m = byId(db.media, el.dataset.id); if (m) mediaForm(m); };
+  actions.deleteMedia = function (el) { db.media = db.media.filter(function (x) { return x.id !== el.dataset.id; }); save(); closeSheet(); render(); };
+  actions.mediaDone = function (el) { var m = byId(db.media, el.dataset.id); if (!m) return; m.status = m.status === 'Done' ? 'To do' : 'Done'; save(); render(); toast(m.status === 'Done' ? 'Marked done' : 'Back to the list'); };
+  actions.mediaType = function (el) { ui.mediaType = el.dataset.v; render(); };
+  actions.mediaStatus = function (el) { ui.mediaStatus = el.dataset.v; render(); };
+
+  /* ---------- Notes like Apple Notes ---------- */
+  function noteWhen(ts) { var d = new Date(ts), s = ymd(d); return s === today() ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : fmtDate(s, { full: true }); }
+  function fullStamp(ts) { var d = new Date(ts); return fmtDate(ymd(d), { full: true }) + ', ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+  function bodyLinks(n) {
+    var found = (n.body.match(/https?:\/\/[^\s<>"]+/g) || []).concat((n.links || []).map(function (l) { return l.url; }));
+    return found.filter(function (u, i) { return found.indexOf(u) === i; });
+  }
+  noteCard = function (n) {
+    var first = n.body.split('\n').filter(Boolean)[0] || 'No additional text', att = [];
+    if (n.photos && n.photos.length) att.push('🖼 ' + n.photos.length); if (bodyLinks(n).length) att.push('🔗 ' + bodyLinks(n).length); if (n.location) att.push('📍');
+    return '<button class="item-card note-card" data-go="note" data-id="' + esc(n.id) + '"><h3>' + (n.pinned ? '📌 ' : '') + esc(n.title || 'New note') + '</h3><div class="note-line"><span class="note-when">' + esc(noteWhen(n.updatedAt || n.createdAt)) + '</span> <span class="muted">' + esc(first) + '</span></div>' + (att.length ? '<div class="meta">' + att.map(function (a) { return '<span>' + a + '</span>'; }).join('') + '</div>' : '') + '</button>';
+  };
+  screens.notes = function () {
+    var q = ui.noteQuery.trim().toLowerCase(), t = today();
+    var ns = db.notes.filter(function (n) { return !q || (n.title + ' ' + n.body).toLowerCase().indexOf(q) >= 0; }).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+    var groups = [['Pinned', []], ['Today', []], ['Yesterday', []], ['Previous 7 days', []], ['Previous 30 days', []], ['Earlier', []]];
+    ns.forEach(function (n) {
+      var d = ymd(new Date(n.updatedAt || n.createdAt)), g = n.pinned ? 0 : d === t ? 1 : d === addDays(t, -1) ? 2 : d >= addDays(t, -7) ? 3 : d >= addDays(t, -30) ? 4 : 5;
+      groups[g][1].push(n);
+    });
+    var body = groups.filter(function (g) { return g[1].length; }).map(function (g) { return section(g[0], g[1].length) + g[1].map(noteCard).join(''); }).join('');
+    return head('Notes', db.notes.length + ' notes', '<button class="btn ghost" data-act="newNote">+ Note</button>') +
+      '<input class="input search" type="search" placeholder="Search notes" data-input="noteQuery" value="' + esc(ui.noteQuery) + '" aria-label="Search notes">' +
+      '<div id="noteResults">' + (ns.length ? body : '<div class="empty">' + (q ? 'No notes match.' : 'No notes yet. Tap + Note.') + '</div>') + '</div>';
+  };
+  screens.note = function (id) {
+    var n = byId(db.notes, id); if (!n) return notFound('This note was deleted.');
+    var projOpts = '<option value="">No project</option>' + db.projects.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === n.project ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('');
+    var links = bodyLinks(n);
+    return '<div class="note-editor" data-note="' + esc(id) + '">' +
+      '<div class="note-dates muted small">Created ' + esc(fullStamp(n.createdAt || n.updatedAt)) + ' · Edited <span id="noteEdited">' + esc(fullStamp(n.updatedAt || n.createdAt)) + '</span></div>' +
+      '<input class="title-in" data-note-field="title" placeholder="Title" value="' + esc(n.title) + '" aria-label="Note title">' +
+      '<div class="note-tools">' +
+      '<button class="tiny-btn mic-inline" data-act="dictate" data-target=".body-in">' + ICON.mic + ' Dictate</button>' +
+      '<label class="tiny-btn file-btn">' + ICON.camera + ' Photo<input type="file" accept="image/*" multiple data-note-photo class="sr-only"></label>' +
+      '<button class="tiny-btn" data-act="noteLink" data-id="' + esc(id) + '">🔗 Link</button>' +
+      '<button class="tiny-btn" data-act="noteLocation" data-id="' + esc(id) + '">📍 Location</button>' +
+      '<button class="tiny-btn" data-act="noteChecklist">☐ Checklist</button>' +
+      '<button class="tiny-btn" data-act="pinNote" data-id="' + esc(id) + '" aria-pressed="' + (!!n.pinned) + '">' + (n.pinned ? 'Unpin' : 'Pin') + '</button>' +
+      '<button class="tiny-btn" data-act="noteToTasks" data-id="' + esc(id) + '">Lines → tasks</button>' +
+      '<button class="tiny-btn" style="color:var(--bad)" data-act="deleteNote" data-id="' + esc(id) + '">Delete</button></div>' +
+      '<textarea class="body-in" data-note-field="body" placeholder="Start writing… Paste a picture or a link here too." aria-label="Note text">' + esc(n.body) + '</textarea>' +
+      '<div class="thumbs" id="noteThumbs"></div>' +
+      (links.length ? '<div class="note-att">' + links.map(function (u) { return '<a class="att-link" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">🔗 ' + esc(host(u)) + '</a>'; }).join('') + '</div>' : '') +
+      (n.location ? '<div class="note-att"><a class="att-link" href="https://maps.apple.com/?ll=' + n.location.lat + ',' + n.location.lon + '&q=' + encodeURIComponent(n.location.label || 'Pinned location') + '" target="_blank" rel="noopener">📍 ' + esc(n.location.label || (n.location.lat.toFixed(4) + ', ' + n.location.lon.toFixed(4))) + '</a><button class="tiny-btn" data-act="noteLocationDel" data-id="' + esc(id) + '">✕</button></div>' : '') +
+      '<div class="note-meta"><select data-note-field="area" aria-label="Area"><option value="">No area</option>' + options(areasList(), n.area) + '</select><select data-note-field="project" aria-label="Project">' + projOpts + '</select></div>' +
+      '<div class="muted small" id="noteSaved">Saved automatically</div></div>';
+  };
+  function noteThumbs() {
+    var n = ui.route.name === 'note' && byId(db.notes, ui.route.id), box = $('#noteThumbs'); if (!n || !box) return;
+    box.innerHTML = ''; (n.photos || []).forEach(function (pid) { appendThumb(box, pid); });
+    $all('[data-act=removePhoto]', box).forEach(function (b) { b.setAttribute('data-act', 'notePhotoDel'); });
+  }
+  function addNotePhotos(files) {
+    var n = byId(db.notes, ui.route.id); if (!n) return;
+    files.reduce(function (p, f) {
+      return p.then(function () { return resizeImage(f); }).then(function (blob) { var pid = 'ph_' + uid(); return PhotoDB.put(pid, blob).then(function () { n.photos.push(pid); }); });
+    }, Promise.resolve()).then(function () { n.updatedAt = Date.now(); save(); noteThumbs(); toast('Picture added'); }).catch(function (e) { toast('Picture not added: ' + e.message); });
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target.matches && e.target.matches('[data-note-photo]')) { addNotePhotos(Array.prototype.slice.call(e.target.files || [])); e.target.value = ''; }
+  });
+  document.addEventListener('paste', function (e) {
+    if (ui.route.name !== 'note' || !e.clipboardData) return;
+    var files = Array.prototype.slice.call(e.clipboardData.files || []).filter(function (f) { return /^image\//.test(f.type); });
+    if (files.length) { e.preventDefault(); addNotePhotos(files); }
+  });
+  actions.notePhotoDel = function (el) {
+    var n = byId(db.notes, ui.route.id), th = el.closest('[data-photo]'); if (!n || !th) return;
+    var pid = th.dataset.photo; n.photos = n.photos.filter(function (x) { return x !== pid; }); PhotoDB.del(pid).catch(function () { /* ignore */ });
+    n.updatedAt = Date.now(); save(); th.remove();
+  };
+  actions.noteLink = function (el) {
+    openSheet('Add link', '<form data-form="noteLink" data-id="' + esc(el.dataset.id) + '" novalidate><label class="field"><span>Link</span><input name="url" inputmode="url" autocapitalize="off" autofocus placeholder="example.com"></label><div class="actions"><button class="btn block" type="submit">Add link</button></div></form>');
+  };
+  submitters.noteLink = function (form) {
+    var n = byId(db.notes, form.dataset.id), u = normUrl(val(form, 'url')); if (!n || !u) return;
+    n.links.push({ url: u }); n.updatedAt = Date.now(); save(); closeSheet(); render(); toast('Link added');
+  };
+  actions.noteLocation = function (el) {
+    var n = byId(db.notes, el.dataset.id); if (!n) return;
+    if (!navigator.geolocation) { toast('Location isn’t available'); return; }
+    navigator.geolocation.getCurrentPosition(function (p) {
+      n.location = { lat: p.coords.latitude, lon: p.coords.longitude, label: '' }; n.updatedAt = Date.now(); save(); render(); toast('Location added');
+    }, function () { toast('Allow location access to add it to the note'); }, { timeout: 10000 });
+  };
+  actions.noteLocationDel = function (el) { var n = byId(db.notes, el.dataset.id); if (n) { delete n.location; save(); render(); } };
+  actions.noteChecklist = function () {
+    var ta = $('.body-in'); if (!ta) return;
+    var pos = ta.selectionStart || ta.value.length, before = ta.value.slice(0, pos), insert = (before && !/\n$/.test(before) ? '\n' : '') + '☐ ';
+    ta.value = before + insert + ta.value.slice(pos); ta.focus(); ta.setSelectionRange(pos + insert.length, pos + insert.length);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  document.addEventListener('click', function (e) {
+    var ta = e.target.closest && e.target.closest('.body-in'); if (!ta) return;
+    var pos = ta.selectionStart, lineStart = ta.value.lastIndexOf('\n', pos - 1) + 1, ch = ta.value.charAt(lineStart);
+    if ((ch === '☐' || ch === '☑') && pos - lineStart <= 2) {
+      ta.value = ta.value.slice(0, lineStart) + (ch === '☐' ? '☑' : '☐') + ta.value.slice(lineStart + 1);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.dataset && e.target.dataset.noteField) { var s = $('#noteEdited'); if (s) s.textContent = fullStamp(Date.now()); }
+  });
+  var _newNote4 = newNote;
+  newNote = function (o) { _newNote4(o); var n = db.notes[db.notes.length - 1]; if (n) { n.createdAt = n.createdAt || Date.now(); n.photos = n.photos || []; n.links = n.links || []; save(); } };
+
+  /* ---------- Safe: fields depend on the record type; document photos are encrypted ---------- */
+  var SAFE_FIELDS = {
+    'Login': [['title', 'Name'], ['link', 'Link'], ['login', 'Login'], ['secret', 'Pass'], ['note', 'Note'], ['tags', 'Tag']],
+    'Address': [['title', 'Name'], ['address', 'Address'], ['phone', 'Phone'], ['note', 'Note'], ['tags', 'Tag']],
+    'Document': [['title', 'Document title'], ['number', 'Number'], ['expires', 'Expiration date'], ['photos', 'Photos'], ['note', 'Note'], ['tags', 'Tag']],
+    'Bank card': [['title', 'Name'], ['cardNumber', 'Card number'], ['cardExp', 'Expiration (MM/YY)'], ['cvv', 'CVV'], ['address', 'Billing address'], ['photos', 'Photos'], ['note', 'Note'], ['tags', 'Tag']],
+    'Bank account': [['title', 'Name'], ['bank', 'Bank'], ['accountNumber', 'Account number'], ['swift', 'SWIFT / IBAN'], ['note', 'Note'], ['tags', 'Tag']],
+    'Safenote': [['title', 'Name'], ['note', 'Note'], ['tags', 'Tag']]
+  };
+  var SECRET_FIELDS = ['secret', 'cvv', 'cardNumber', 'accountNumber', 'number'];
+  var SafePhoto = {
+    put: function (blob) {
+      var id = 'sp_' + uid();
+      return blob.arrayBuffer().then(function (buf) { return seal(Vault.key, new Uint8Array(buf)); }).then(function (box) {
+        return PhotoDB.tx('readwrite', function (s) { return s.put({ enc: 1, type: blob.type, iv: box.iv, ct: box.ct }, id); });
+      }).then(function () { return id; });
+    },
+    get: function (id) {
+      return PhotoDB.tx('readonly', function (s) { return s.get(id); }).then(function (v) {
+        if (!v || !Vault.unlocked()) return null;
+        return unseal(Vault.key, v).then(function (bytes) { return new Blob([bytes], { type: v.type || 'image/jpeg' }); });
+      });
+    }
+  };
+  function safeThumb(box, id) {
+    box.insertAdjacentHTML('beforeend', '<div class="thumb" data-photo="' + esc(id) + '"><button type="button" class="thumb-img" data-act="viewSafePhoto" data-id="' + esc(id) + '" aria-label="View photo"><img alt=""></button><button type="button" class="thumb-x" data-act="removePhoto" aria-label="Remove photo">✕</button></div>');
+    var img = box.lastElementChild.querySelector('img');
+    SafePhoto.get(id).then(function (b) { if (b) img.src = URL.createObjectURL(b); });
+  }
+  actions.viewSafePhoto = function (el) {
+    SafePhoto.get(el.dataset.id).then(function (b) {
+      if (!b) return; var v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('data-act', 'closeViewer');
+      v.innerHTML = '<img alt="Document photo"><span class="viewer-x">Close</span>'; v.querySelector('img').src = URL.createObjectURL(b); document.body.appendChild(v);
+    });
+  };
+  function safeFieldHtml(key, lbl, r) {
+    var v = r[key] == null ? '' : r[key];
+    if (key === 'note') return '<label class="field"><span>' + lbl + '</span><textarea name="note" rows="3">' + esc(v) + '</textarea></label>';
+    if (key === 'tags') return '<label class="field"><span>' + lbl + '</span><input name="tags" list="safeTags" value="' + esc((r.tags || []).join(', ')) + '" placeholder="e.g. family, bali (comma separated)" autocapitalize="off"></label>';
+    if (key === 'photos') return '<div class="field"><span>' + lbl + '</span><div class="thumbs" id="safeThumbs"></div><label class="tiny-btn file-btn">' + ICON.camera + ' Add photo<input type="file" accept="image/*" multiple data-safe-photo class="sr-only"></label></div>';
+    if (key === 'expires') return '<label class="field"><span>' + lbl + '</span><input type="date" name="expires" value="' + esc(v) + '"></label>';
+    var attrs = { secret: ' type="password" autocomplete="new-password"', cvv: ' type="password" inputmode="numeric" maxlength="4" autocomplete="off"', cardNumber: ' inputmode="numeric" autocomplete="off" maxlength="23" placeholder="1234 5678 9012 3456"', cardExp: ' inputmode="numeric" maxlength="5" placeholder="MM/YY"', link: ' inputmode="url" autocapitalize="off" autocorrect="off" placeholder="example.com"', login: ' autocapitalize="off" autocorrect="off" spellcheck="false"', phone: ' type="tel"', accountNumber: ' inputmode="numeric" autocomplete="off"', number: ' autocapitalize="characters" autocomplete="off"', swift: ' autocapitalize="characters"' }[key] || '';
+    return '<label class="field"><span>' + lbl + '</span><input name="' + key + '" value="' + esc(v) + '"' + attrs + (key === 'title' ? ' required' : '') + '></label>' + (key === 'title' ? '<p class="hint" id="safeFormErr" role="alert" style="color:var(--bad)"></p>' : '');
+  }
+  safeForm = function (r, draft) {
+    var isNew = !r; r = Object.assign({ title: '', type: 'Login', tags: [], photos: [] }, r || {}, draft || {});
+    var all = []; (Vault.records || []).forEach(function (x) { (x.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); });
+    var fields = SAFE_FIELDS[r.type] || SAFE_FIELDS.Safenote;
+    openSheet(isNew ? 'New Safe record' : 'Edit Safe record', '<form data-form="safe" data-id="' + esc(isNew ? '' : r.id) + '" autocomplete="off" novalidate>' +
+      '<label class="field"><span>Type</span><select name="type" data-safe-type>' + options(SAFE_TYPES, r.type) + '</select></label>' +
+      fields.map(function (f) { return safeFieldHtml(f[0], f[1], r); }).join('') +
+      '<datalist id="safeTags">' + all.map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
+      '<div class="actions"><button class="btn block" type="submit">' + (isNew ? 'Save record' : 'Save changes') + '</button>' +
+      (isNew ? '' : '<button type="button" class="btn danger block" data-act="deleteSafe" data-id="' + esc(r.id) + '">Delete record</button>') + '</div></form>');
+    var box = $('#safeThumbs'); if (box) (r.photos || []).forEach(function (id) { safeThumb(box, id); });
+    var t = $('#sheet input[name=title]'); if (t && isNew && !draft) t.focus();
+  };
+  function readSafeForm(form) {
+    var out = { photos: $all('#safeThumbs [data-photo]', form).map(function (x) { return x.dataset.photo; }) };
+    Array.prototype.forEach.call(form.elements, function (el) { if (el.name && el.name !== 'tags') out[el.name] = el.name === 'secret' || el.name === 'cvv' ? el.value : String(el.value || '').trim(); });
+    if (form.elements.tags) out.tags = form.elements.tags.value.split(',').map(function (t) { return t.trim().replace(/^#/, ''); }).filter(Boolean);
+    return out;
+  }
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.matches && t.matches('[data-safe-type]')) {
+      var form = t.closest('form'), id = form.dataset.id, draft = readSafeForm(form);
+      safeForm(id ? byId(Vault.records, id) : null, draft);
+    }
+    if (t.matches && t.matches('[data-safe-photo]')) {
+      var box = $('#safeThumbs'), files = Array.prototype.slice.call(t.files || []);
+      files.reduce(function (p, f) { return p.then(function () { return resizeImage(f); }).then(SafePhoto.put).then(function (id) { safeThumb(box, id); }); }, Promise.resolve())
+        .catch(function (err) { toast('Photo not added: ' + err.message); });
+      t.value = '';
+    }
+  });
+  submitters.safe = function (form) {
+    if (!Vault.unlocked()) { closeSheet(); render(); return; }
+    var data = readSafeForm(form);
+    if (!data.title) { $('#safeFormErr').textContent = 'Give the record a name.'; return; }
+    if (data.cardExp && !/^(0[1-9]|1[0-2])\/\d{2}$/.test(data.cardExp)) { $('#safeFormErr').textContent = 'Card expiration should look like 08/29.'; return; }
+    var r = form.dataset.id ? byId(Vault.records, form.dataset.id) : { id: uid() };
+    var old = (r.photos || []).slice();
+    Object.keys(r).forEach(function (k) { if (k !== 'id') delete r[k]; });
+    Object.assign(r, data);
+    old.forEach(function (p) { if (data.photos.indexOf(p) < 0) PhotoDB.del(p).catch(function () { /* ignore */ }); });
+    if (!form.dataset.id) Vault.records.push(r);
+    busy(form, true);
+    Vault.persist().then(function () { closeSheet(); render(); toast('Saved to Safe'); }).catch(function (e) { busy(form, false); toast('Could not save: ' + e.message); });
+  };
+  function cardExpDate(s) { var m = /^(\d\d)\/(\d\d)$/.exec(s || ''); if (!m) return ''; var y = 2000 + +m[2], mo = +m[1]; return ymd(new Date(y, mo, 0)); }
+  function expiryChip(d) {
+    if (!d) return ''; var days = Math.round((utcDay(d) - utcDay(today())) / 86400000);
+    return days < 0 ? '<span class="chip overdue">Expired</span>' : days <= 90 ? '<span class="chip overdue">Expires in ' + days + ' days</span>' : '<span class="chip">Valid to ' + esc(fmtDate(d, { full: true })) + '</span>';
+  }
+  function maskVal(k, v) { if (k === 'cardNumber' || k === 'accountNumber') return '•••• ' + String(v).replace(/\s/g, '').slice(-4); return '••••••••'; }
+  safeCard = function (r) {
+    var shown = !!ui.revealed[r.id], fields = SAFE_FIELDS[r.type] || SAFE_FIELDS.Safenote, rows = '';
+    fields.forEach(function (f) {
+      var k = f[0], v = r[k]; if (k === 'title' || k === 'tags' || k === 'photos' || !v) return;
+      if (k === 'link') { rows += '<div class="secret-row"><span class="label">' + f[1] + '</span><span class="val"><a href="' + esc(normUrl(v)) + '" target="_blank" rel="noopener noreferrer">' + esc(v) + '</a></span></div>'; return; }
+      if (k === 'expires') { rows += '<div class="secret-row"><span class="label">Expires</span><span class="val">' + esc(fmtDate(v, { full: true })) + '</span></div>'; return; }
+      var secret = SECRET_FIELDS.indexOf(k) >= 0;
+      rows += '<div class="secret-row"><span class="label">' + esc(f[1].replace(' (MM/YY)', '')) + '</span><span class="val"' + (k === 'note' || k === 'address' ? ' style="white-space:pre-wrap"' : '') + '>' + (secret && !shown ? esc(maskVal(k, v)) : esc(v)) + '</span>' +
+        (k !== 'note' && k !== 'address' ? '<button class="tiny-btn" data-act="safeCopy" data-id="' + esc(r.id) + '" data-f="' + k + '">Copy</button>' : '') + '</div>';
+    });
+    var hasSecret = fields.some(function (f) { return SECRET_FIELDS.indexOf(f[0]) >= 0 && r[f[0]]; });
+    var exp = r.type === 'Document' ? expiryChip(r.expires) : r.type === 'Bank card' ? expiryChip(cardExpDate(r.cardExp)) : '';
+    var tags = (r.tags || []).map(function (t) { return '<span class="chip">#' + esc(t) + '</span>'; }).join('');
+    return '<div class="card pad" style="margin-bottom:10px" data-safe="' + esc(r.id) + '"><div class="row between"><h3 class="safe-title">' + esc(r.title) + '</h3><span class="row">' + (hasSecret ? '<button class="tiny-btn" data-act="safeReveal" data-id="' + esc(r.id) + '" aria-pressed="' + shown + '">' + (shown ? 'Hide' : 'Show') + '</button>' : '') + '<button class="tiny-btn" data-act="editSafe" data-id="' + esc(r.id) + '">Edit</button></span></div>' +
+      '<div class="meta" style="margin-top:4px"><span class="chip accent">' + esc(r.type) + '</span>' + exp + tags + (r.photos && r.photos.length ? '<span>🖼 ' + r.photos.length + '</span>' : '') + '</div>' + rows +
+      (r.photos && r.photos.length ? '<div class="thumbs" style="margin-top:10px" data-safe-thumbs="' + esc(r.id) + '"></div>' : '') + '</div>';
+  };
+  var _render4b = render;
+  render = function (rs) {
+    _render4b(rs);
+    if (ui.route.name === 'note') noteThumbs();
+    if (ui.route.name === 'safe' && Vault.unlocked()) $all('[data-safe-thumbs]').forEach(function (box) {
+      var r = byId(Vault.records, box.dataset.safeThumbs); if (!r) return;
+      (r.photos || []).forEach(function (id) { safeThumb(box, id); });
+      $all('.thumb-x', box).forEach(function (x) { x.remove(); });
+    });
+  };
+  photoGC = function () {
+    var used = {};
+    db.tasks.forEach(function (t) { (t.photos || []).forEach(function (p) { used[p] = 1; }); });
+    db.notes.forEach(function (n) { (n.photos || []).forEach(function (p) { used[p] = 1; }); });
+    PhotoDB.keys().then(function (keys) { keys.forEach(function (k) { if (!used[k] && k.indexOf('sp_') !== 0) PhotoDB.del(k); }); }).catch(function () { /* ignore */ });
+  };
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');

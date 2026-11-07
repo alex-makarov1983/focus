@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -19,7 +19,7 @@ async function open(page, hash = '') {
   return errors;
 }
 async function mockApis(page) {
-  await page.route(/coingecko/, (r) => r.fulfill({ json: { bitcoin: { usd: 97120, rub: 1, idr: 1, eur: 1 }, tether: { usd: 1, rub: 95.4, idr: 16350, eur: 0.92 } } }));
+  await page.route(/coingecko/, (r) => r.fulfill({ json: { bitcoin: { usd: 97120, rub: 1, idr: 1, eur: 1 }, tether: { usd: 1, rub: 95.4, idr: 16350, eur: 0.92, rub_24h_change: 0.4, idr_24h_change: -0.12 } } }));
   await page.route(/open-meteo/, (r) => r.fulfill({ json: { current: { temperature_2m: -3.2, apparent_temperature: -8, weather_code: 71, wind_speed_10m: 4.1 } } }));
 }
 const h1 = (page) => page.locator('#screen h1').first();
@@ -148,7 +148,7 @@ test('+ opens chooser; a new task lands in Inbox and survives reload', async ({ 
   await open(page);
   await press(page, page.locator('.add-btn'));
   const choices = page.locator('#sheet .choice');
-  await expect(choices).toHaveText(['Task', 'Voice', 'Note', 'Safe', 'Income', 'Expense', 'Bookmark']);
+  await expect(choices).toHaveText(['Task', 'Assistant', 'Note', 'Safe', 'Income', 'Expense', 'Balance', 'Bookmark']);
   await press(page, choices.filter({ hasText: 'Task' }));
   await page.locator('#sheet input[name=title]').fill('Buy printer ink');
   await expect(page.locator('#sheet select[name=list]')).toHaveValue('inbox');
@@ -379,10 +379,10 @@ test('Home: 4 city clocks, USDT/RUB, BTC, Moscow weather, traffic link, quick ti
   await expect(page.locator('#wBtc')).toHaveText('$97,120');
   await expect(page.locator('#wTemp')).toHaveText('-3°');
   await expect(page.locator('a.widget[href*="yandex.ru/maps"]')).toHaveCount(1);
-  await expect(page.locator('.tiles.five .tile .l')).toHaveText(['Today', 'Urgent', 'Inbox', 'Someday', 'Follow-up', 'Delegated']);
+  await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Follow-up', 'Delegated', 'Someday', 'Done', 'Paused']);
   await expect(page.locator('#screen')).not.toContainText('Waiting on others');
-  await press(page, page.locator('.tile', { hasText: 'Urgent' }));
-  await expect(h1(page)).toHaveText('Urgent');
+  await press(page, page.locator('.tile', { hasText: 'Most important' }));
+  await expect(h1(page)).toHaveText('Most important');
   await expect(page.locator('#screen .task-title')).toHaveText(['Review quarterly growth plan']);
 });
 
@@ -444,30 +444,39 @@ test('Task: attach a photo; it survives reload', async ({ page }) => {
   await expect(page.locator('.viewer img')).toBeVisible();
 });
 
-test('Voice: dictated sentences become Inbox tasks; mic in task form fills the title', async ({ page }) => {
+test('Voice: dictate into the assistant and into the task title', async ({ page }) => {
   await page.addInitScript(() => {
     class FakeSR {
       start() { setTimeout(() => {
         const r = [Object.assign([{ transcript: window.__say || 'Купить молоко. Позвонить маме' }], { isFinal: true })];
-        this.onresult && this.onresult({ resultIndex: 0, results: r }); this.onend && this.onend();
+        this.onstart && this.onstart(); this.onresult && this.onresult({ resultIndex: 0, results: r }); this.onend && this.onend();
       }, 50); }
       stop() { this.onend && this.onend(); }
+      abort() { this.onend && this.onend(); }
     }
     window.webkitSpeechRecognition = FakeSR; window.SpeechRecognition = FakeSR;
   });
   await open(page);
-  await press(page, page.locator('.add-btn'));
-  await press(page, page.locator('#sheet .choice', { hasText: 'Voice' }));
+  await press(page, page.locator('.ai-bar'));
   await press(page, page.locator('#sheet .mic-btn'));
-  await expect(page.locator('#voiceText')).toHaveValue('Купить молоко. Позвонить маме');
+  await expect(page.locator('#aiText')).toHaveValue('Купить молоко. Позвонить маме');
+  await expect(page.locator('.ai-item')).toHaveCount(2);
   await press(page, page.locator('#sheet button[type=submit]'));
   await viaMenu(page, 'Inbox');
   await expect(page.locator('#screen .task-title', { hasText: 'Купить молоко' })).toHaveCount(1);
-  await expect(page.locator('#screen .task-title', { hasText: 'Позвонить маме' })).toHaveCount(1);
   await page.evaluate(() => { window.__say = 'Book flights'; });
-  await press(page, page.locator('[data-act=newTask]'));
+  await press(page, page.locator('[data-act=newTask]').first());
   await press(page, page.locator('#sheet .field.has-mic .mic-btn').first());
   await expect(page.locator('#sheet input[name=title]')).toHaveValue('Book flights');
+});
+
+test('Dictate never hangs: without speech support it falls back to the keyboard mic', async ({ page }) => {
+  await page.addInitScript(() => { delete window.webkitSpeechRecognition; delete window.SpeechRecognition; });
+  await open(page, '#/notes');
+  await press(page, page.locator('[data-act=newNote]'));
+  await press(page, page.locator('[data-act=dictate]'));
+  await expect(page.locator('#toast')).toContainText('keyboard');
+  await expect(page.locator('.body-in')).toBeFocused();
 });
 
 test('Bookmarks: save a link with a tag and filter by it', async ({ page }) => {
@@ -537,7 +546,7 @@ test('Safe: 4-digit PIN, fields, types, tags; asks only once per launch; encrypt
   await press(page, page.locator('form[data-form=safeSetup] button[type=submit]'));
   await press(page, page.locator('[data-act=newSafe]'));
   const labels = await page.locator('#sheet .field > span').allTextContents();
-  expect(labels).toEqual(['Name', 'Link', 'Login', 'Pass', 'Note', 'Type', 'Tag']);
+  expect(labels).toEqual(['Type', 'Name', 'Link', 'Login', 'Pass', 'Note', 'Tag']);
   await expect(page.locator('#sheet select[name=type] option')).toHaveText(['Login', 'Address', 'Document', 'Bank card', 'Bank account', 'Safenote']);
   await page.locator('#sheet input[name=title]').fill('Demo bank');
   await page.locator('#sheet input[name=secret]').fill('not-a-real-secret-42');
@@ -649,4 +658,171 @@ test('Whole life: 80×52 grid marks the current week for a given birth date', as
   await expect(page.locator('[data-k=left]')).toHaveText((4160 - expected).toLocaleString('en-US'));
   await page.reload(); await page.waitForSelector('html[data-ready="1"]');
   await expect(page.locator('#youAreHere')).toHaveCount(1);
+});
+
+/* ===================== v1.3 ===================== */
+test('Header: title next to the menu; top-right holds the screen action or the assistant', async ({ page }) => {
+  await open(page, '#/projects');
+  await expect(page.locator('#miniTitle')).toHaveText('Projects');
+  await expect(page.locator('#topActions [data-act=newProject]')).toBeVisible();
+  await press(page, page.locator('.tab[data-go=today]'));
+  await expect(page.locator('#topActions [data-act=openAssistant]')).toBeVisible();
+  const t = await page.locator('#miniTitle').boundingBox(), m = await page.locator('#menuBtn').boundingBox();
+  expect(Math.abs((t.y + t.height / 2) - (m.y + m.height / 2))).toBeLessThan(6);
+});
+
+test('Home: date under each clock, IDR rate, change vs yesterday, sun tile, my priorities', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('.clock .cday').first()).toHaveText(/^[A-Z][a-z]{2} \d{1,2}$/);
+  await expect(page.locator('#wIdr')).toHaveText('16,350');
+  await expect(page.locator('#wUsdtC')).toContainText('▲ 0.40%');
+  await expect(page.locator('#wIdrC')).toContainText('▼ 0.12%');
+  await expect(page.locator('.widget[data-act=enableGeo]')).toContainText('Tap to use location');
+  await expect(page.locator('.pri-chip')).toHaveText(['1Здоровье', '2Свобода', '3Доход', '4Отношения', '5Комфорт', '6Друзья/Близкие']);
+  await press(page, page.locator('[data-act=newLifePri]'));
+  await page.locator('#sheet input[name=name]').fill('Путешествия');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('.pri-chip')).toHaveCount(7);
+  await expect(page.locator('.shortcut')).toHaveCount(12);
+});
+
+test('Assistant: one message creates a task with date/time/priority, an expense and a note', async ({ page }) => {
+  await open(page);
+  await press(page, page.locator('.ai-bar'));
+  await page.locator('#aiText').fill('Позвонить в банк завтра в 10:00 !\nРасход 1200 руб такси\nЗаметка: идеи для поездки');
+  await expect(page.locator('.ai-item')).toHaveCount(3);
+  await press(page, page.locator('#sheet button[type=submit]'));
+  const d = await stored(page);
+  const task = d.tasks.find((x) => x.title === 'Позвонить в банк');
+  const tomorrow = await page.evaluate(() => { const n = new Date(); n.setDate(n.getDate() + 1); return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0'); });
+  expect(task).toMatchObject({ date: tomorrow, time: '10:00', priority: 'urgent', list: 'inbox' });
+  expect(d.finance.find((r) => r.amount === 1200)).toMatchObject({ kind: 'expense', currency: 'RUB', category: 'Такси' });
+  expect(d.notes.some((n) => n.body === 'идеи для поездки')).toBe(true);
+  await press(page, page.locator('.ai-bar'));
+  await page.locator('#aiText').fill('Готово позвонить в банк');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  expect((await stored(page)).tasks.find((x) => x.title === 'Позвонить в банк').done).toBe(true);
+});
+
+test('New tasks default to Inbox even from Today; title and description come first', async ({ page }) => {
+  await open(page, '#/today');
+  await press(page, page.locator('[data-act=newTask]'));
+  await expect(page.locator('#sheet .field > span').nth(0)).toHaveText('Task title');
+  await expect(page.locator('#sheet .field > span').nth(1)).toHaveText('Description');
+  await expect(page.locator('#sheet select[name=list]')).toHaveValue('inbox');
+  await page.locator('#sheet input[name=title]').fill('Today but unprocessed');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#screen .task-title', { hasText: 'Today but unprocessed' })).toHaveCount(1);
+  await viaMenu(page, 'Inbox');
+  await expect(page.locator('#screen .task-title', { hasText: 'Today but unprocessed' })).toHaveCount(1);
+});
+
+test('Paused status keeps a task out of Today and lists it under Paused', async ({ page }) => {
+  await open(page, '#/today');
+  await press(page, page.locator('#screen .task-body', { hasText: 'Approve renovation budget' }));
+  await page.locator('#sheet select[name=status]').selectOption('paused');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#screen .task', { hasText: 'Approve renovation budget' })).toHaveCount(0);
+  await viaMenu(page, 'Paused');
+  await expect(page.locator('#screen .task', { hasText: 'Approve renovation budget' })).toHaveCount(1);
+});
+
+test('+ Balance opens the balance record sheet', async ({ page }) => {
+  await open(page);
+  await press(page, page.locator('.add-btn'));
+  await press(page, page.locator('#sheet .choice', { hasText: 'Balance' }));
+  await expect(page.locator('#sheetTitle')).toHaveText('Record balances');
+});
+
+test('Travel planner: trip with dates and a checklist', async ({ page }) => {
+  await open(page, '#/travel');
+  await press(page, page.locator('[data-act=newTrip]'));
+  await page.locator('#sheet input[name=title]').fill('Ski week');
+  await page.locator('#sheet input[name=destination]').fill('Niseko, Japan');
+  await page.locator('#sheet input[name=start]').fill('2027-01-20');
+  await page.locator('#sheet input[name=end]').fill('2027-01-27');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(h1(page)).toHaveText('Ski week');
+  await page.locator('form[data-form=tripItem] input').fill('Passport');
+  await page.locator('form[data-form=tripItem] input').press('Enter');
+  await press(page, page.locator('#screen .check').first());
+  await expect(page.locator('#screen .check').first()).toHaveAttribute('aria-checked', 'true');
+  await press(page, page.locator('#backBtn'));
+  await expect(page.locator('.item-card', { hasText: 'Ski week' })).toContainText('✓ 1/1');
+});
+
+test('Friends: log contact and see when to reach out next', async ({ page }) => {
+  await open(page, '#/friends');
+  await press(page, page.locator('[data-act=newFriend]'));
+  await page.locator('#sheet input[name=name]').fill('Ivan');
+  await page.locator('#sheet input[name=contact]').fill('@ivan');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  const card = page.locator('[data-friend]', { hasText: 'Ivan' });
+  await expect(card).toContainText('Reach out');
+  await expect(card.locator('a')).toHaveAttribute('href', 'https://t.me/ivan');
+  await press(page, card.locator('[data-act=friendContacted]'));
+  await expect(page.locator('[data-friend]', { hasText: 'Ivan' })).toContainText('in 30 days');
+});
+
+test('Watch · Read · Listen: add a book, mark it done', async ({ page }) => {
+  await open(page, '#/media');
+  await press(page, page.locator('[data-act=newMedia]'));
+  await page.locator('#sheet input[name=title]').fill('Sapiens');
+  await page.locator('#sheet select[name=type]').selectOption('Book');
+  await page.locator('#sheet input[name=link]').fill('example.com/sapiens');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('.bm', { hasText: 'Sapiens' }).locator('a')).toHaveAttribute('href', 'https://example.com/sapiens');
+  await press(page, page.locator('.bm', { hasText: 'Sapiens' }).locator('.check'));
+  await expect(page.locator('.bm', { hasText: 'Sapiens' })).toHaveCount(0);
+  await press(page, page.locator('[data-act=mediaStatus][data-v=Done]'));
+  await expect(page.locator('.bm', { hasText: 'Sapiens' })).toHaveCount(1);
+});
+
+test('Notes: dates, picture, link; listed by date like Apple Notes', async ({ page }) => {
+  await open(page, '#/notes');
+  await press(page, page.locator('[data-act=newNote]'));
+  await expect(page.locator('.note-dates')).toContainText('Created');
+  await page.locator('.title-in').fill('Trip ideas 2027');
+  await page.locator('.body-in').fill('See https://example.org/guide');
+  await page.locator('[data-note-photo]').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('#noteThumbs .thumb')).toHaveCount(1);
+  await press(page, page.locator('[data-act=noteLink]'));
+  await page.locator('#sheet input[name=url]').fill('example.com');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('.att-link')).toHaveCount(2);
+  await press(page, page.locator('#backBtn'));
+  const card = page.locator('.note-card', { hasText: 'Trip ideas 2027' });
+  await expect(card).toContainText('🖼 1');
+  await expect(page.locator('#screen .section h2').first()).toContainText(/Pinned|Today/);
+});
+
+test('Safe: Document and Bank card show only relevant fields; document photos are encrypted', async ({ page }) => {
+  await open(page, '#/safe');
+  await page.locator('input[name=pin]').fill('4821'); await page.locator('input[name=pin2]').fill('4821');
+  await press(page, page.locator('form[data-form=safeSetup] button[type=submit]'));
+  await press(page, page.locator('[data-act=newSafe]'));
+  await page.locator('#sheet select[name=type]').selectOption('Document');
+  await expect(page.locator('#sheet .field > span')).toHaveText(['Type', 'Document title', 'Number', 'Expiration date', 'Photos', 'Note', 'Tag']);
+  await page.locator('#sheet input[name=title]').fill('Passport');
+  await page.locator('#sheet input[name=number]').fill('AB1234567');
+  await page.locator('#sheet input[name=expires]').fill('2027-01-15');
+  await page.locator('[data-safe-photo]').setInputFiles({ name: 'p.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.locator('#safeThumbs .thumb')).toHaveCount(1);
+  await press(page, page.locator('#sheet button[type=submit]'));
+  const card = page.locator('[data-safe]', { hasText: 'Passport' });
+  await expect(card).toContainText('•••••');
+  await expect(card).not.toContainText('AB1234567');
+  const enc = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('focus-photos', 1); r.onsuccess = () => { const g = r.result.transaction('photos').objectStore('photos').getAll(); g.onsuccess = () => res(g.result.filter((x) => x.enc === 1).length); }; }));
+  expect(enc).toBe(1);
+  await press(page, page.locator('[data-act=newSafe]'));
+  await page.locator('#sheet select[name=type]').selectOption('Bank card');
+  await expect(page.locator('#sheet .field > span')).toHaveText(['Type', 'Name', 'Card number', 'Expiration (MM/YY)', 'CVV', 'Billing address', 'Photos', 'Note', 'Tag']);
+  await page.locator('#sheet input[name=title]').fill('Visa');
+  await page.locator('#sheet input[name=cardNumber]').fill('4111 1111 1111 4417');
+  await page.locator('#sheet input[name=cardExp]').fill('13/29');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#safeFormErr')).toContainText('08/29');
+  await page.locator('#sheet input[name=cardExp]').fill('08/29');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('[data-safe]', { hasText: 'Visa' })).toContainText('•••• 4417');
 });
