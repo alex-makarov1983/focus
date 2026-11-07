@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -14,7 +14,7 @@ async function open(page, hash = '') {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await mockApis(page);
-  await page.goto('index.html' + hash);
+  await page.goto('index.html?demo=1' + hash);
   await page.waitForSelector('html[data-ready="1"]');
   return errors;
 }
@@ -373,7 +373,7 @@ test('works offline after the first visit', async ({ page, context, browserName 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFTEMBQkAOz0/wa5LZ1wAAAAASUVORK5CYII=', 'base64');
 test('Home: 4 city clocks, USDT/RUB, BTC, Moscow weather, traffic link, quick tiles', async ({ page }) => {
   await open(page);
-  await expect(page.locator('.clock .city')).toHaveText(['Bali', 'Moscow', 'New York', 'Los Angeles']);
+  await expect(page.locator('.clock .city')).toHaveText(['Los Angeles', 'New York', 'Moscow', 'Bali']);
   await expect(page.locator('.clock .ctime').first()).toHaveText(/^\d\d:\d\d$/);
   await expect(page.locator('#wUsdt')).toHaveText('95.40 ₽');
   await expect(page.locator('#wBtc')).toHaveText('$97,120');
@@ -582,4 +582,71 @@ test('Safe: Face ID unlock via platform passkey (WebAuthn PRF)', async ({ page, 
   await page.reload(); await page.waitForSelector('html[data-ready="1"]');
   await press(page, page.locator('[data-act=safeFaceId]'));
   await expect(page.locator('[data-safe]', { hasText: 'Face test' })).toHaveCount(1);
+});
+
+/* ===================== v1.2 ===================== */
+test('a clean install starts empty (no demo data)', async ({ page }) => {
+  await mockApis(page);
+  await page.goto('index.html');
+  await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('.tile', { hasText: 'Inbox' }).locator('.n')).toHaveText('0');
+  await viaMenu(page, 'Projects');
+  await expect(page.locator('#screen .item-card')).toHaveCount(0);
+  await viaMenu(page, 'Areas');
+  await expect(page.locator('.area-tile h3')).toHaveText(['Personal', 'Business']);
+});
+
+test('upgrade removes old demo items but keeps what the user added', async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    const d = JSON.parse(localStorage.getItem('focus.data.v1'));
+    delete d.settings.demoPurged;
+    d.tasks.push({ id: 'mine1', title: 'My real task', notes: '', list: 'inbox', date: '', time: '', priority: 'high', status: 'todo', done: false, completedAt: '', area: 'personal', project: '', repeat: '', subtasks: [], photos: [], delegatedTo: '', order: -5 });
+    d.finance.push({ id: 'f_mine', kind: 'income', type: 'actual', date: '2026-11-02', amount: 1234, currency: 'USD', category: 'Business', note: '' });
+    localStorage.setItem('focus.data.v1', JSON.stringify(d));
+  });
+  await page.goto('index.html#/inbox');
+  await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('#screen .task-title')).toHaveText(['My real task']);
+  const d = await stored(page);
+  expect(d.projects).toEqual([]);
+  expect(d.finance.map((r) => r.id)).toEqual(['f_mine']);
+  expect(d.settings.demoPurged).toBe(true);
+});
+
+test('Habits: add a habit, tick today and yesterday, see the streak; tick from Home', async ({ page }) => {
+  await open(page, '#/habits');
+  await press(page, page.locator('[data-act=newHabit]'));
+  await page.locator('#sheet input[name=name]').fill('Meditate');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  const card = page.locator('[data-habit]', { hasText: 'Meditate' });
+  await expect(card.locator('.hday')).toHaveCount(7);
+  await press(page, card.locator('.hday').nth(6));
+  await press(page, page.locator('[data-habit]', { hasText: 'Meditate' }).locator('.hday').nth(5));
+  await expect(page.locator('[data-habit]', { hasText: 'Meditate' }).locator('[data-streak]')).toHaveText('🔥 2 days');
+  await page.reload(); await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('[data-habit]', { hasText: 'Meditate' }).locator('[data-streak]')).toHaveText('🔥 2 days');
+  await press(page, page.locator('.tab[data-go=home]'));
+  const row = page.locator('#screen .task', { hasText: 'Meditate' });
+  await expect(row.locator('.check')).toHaveAttribute('aria-checked', 'true');
+  await press(page, row.locator('.check'));
+  await expect(page.locator('#screen .task', { hasText: 'Meditate' }).locator('.check')).toHaveAttribute('aria-checked', 'false');
+});
+
+test('Whole life: 80×52 grid marks the current week for a given birth date', async ({ page }) => {
+  await open(page, '#/life');
+  await expect(page.locator('#screen .empty')).toContainText('birth date');
+  await page.locator('#screen input[data-setting=birthDate]').fill('1983-12-07');
+  await page.locator('#screen input[data-setting=birthDate]').dispatchEvent('change');
+  await expect(page.locator('#youAreHere')).toHaveCount(1);
+  const expected = await page.evaluate(() => {
+    const n = new Date(); const t = [n.getFullYear(), n.getMonth() + 1, n.getDate()];
+    let y = t[0] - 1983; if (t[1] < 12 || (t[1] === 12 && t[2] < 7)) y--;
+    const days = Math.floor((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(1983 + y, 11, 7)) / 864e5);
+    return y * 52 + Math.min(51, Math.floor(days / 7));
+  });
+  await expect(page.locator('svg.life-grid')).toHaveAttribute('data-lived', String(expected));
+  await expect(page.locator('[data-k=left]')).toHaveText((4160 - expected).toLocaleString('en-US'));
+  await page.reload(); await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('#youAreHere')).toHaveCount(1);
 });

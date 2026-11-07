@@ -2236,6 +2236,198 @@
   var _boot = boot;
   boot = function () { _boot(); applyTheme(); setTimeout(photoGC, 4000); };
 
+
+  /* ================= v1.2: no demo data, habits, whole life ================= */
+  APP_VERSION = '1.2.0';
+  var DEMO_FLAG = /[?&]demo=1\b/.test(location.search);
+  CLOCKS = [['Los Angeles', 'America/Los_Angeles'], ['New York', 'America/New_York'], ['Moscow', 'Europe/Moscow'], ['Bali', 'Asia/Makassar']];
+  Object.assign(ROUTES, { habits: { title: 'Habits', icon: 'habits' }, life: { title: 'Whole life', icon: 'life' } });
+  ICON.habits = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/><path d="M8 3v3M16 3v3M8.5 13l2.5 2.5 4.5-5"/></svg>';
+  ICON.life = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="4" height="4" rx="1"/><rect x="10" y="4" width="4" height="4" rx="1"/><rect x="16" y="4" width="4" height="4" rx="1"/><rect x="4" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1" opacity=".35"/><rect x="16" y="10" width="4" height="4" rx="1" opacity=".35"/><rect x="4" y="16" width="4" height="4" rx="1" opacity=".35"/><rect x="10" y="16" width="4" height="4" rx="1" opacity=".35"/><rect x="16" y="16" width="4" height="4" rx="1" opacity=".35"/></svg>';
+  DRAWER_GROUPS.splice(2, 0, ['Life', ['habits', 'life']]);
+
+  var _normalize2b = normalize;
+  normalize = function (d) {
+    d = _normalize2b(d);
+    if (!Array.isArray(d.habits)) d.habits = [];
+    d.habits.forEach(function (h) { if (!h.done || typeof h.done !== 'object') h.done = {}; });
+    if (d.settings.birthDate == null) d.settings.birthDate = '';
+    return d;
+  };
+  function emptyData() {
+    var d = normalize({ v: 1, tasks: [], projects: [], notes: [], finance: [], purchases: [] });
+    d.settings.demoPurged = true; return d;
+  }
+  var _seedData2 = seedData;
+  seedData = function () {
+    var d = normalize(_seedData2());
+    d.habits = [{ id: 'hb1', name: 'Morning workout', createdAt: Date.now(), done: {} }, { id: 'hb2', name: 'Read 20 pages', createdAt: Date.now(), done: {} }];
+    d.habits[0].done[addDays(today(), -1)] = true; d.habits[0].done[addDays(today(), -2)] = true;
+    d.settings.demoPurged = true; return d;
+  };
+
+  /* One-time cleanup: remove the demo items earlier versions created, keep everything the user added. */
+  var DEMO = {
+    tasks: ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10', 't11', 't12'],
+    taskTitles: ['Review quarterly growth plan', 'Approve renovation budget', 'Call the contractor about roof quote', 'Draft launch announcement', 'Renew insurance documents', 'Pick a CRM for the sales team', 'Research new supplier options', 'Plan weekend hike route', 'Learn to sail', 'Book dentist appointment', 'Weekly review', 'Send measurements to designer'],
+    projects: ['p_web', 'p_launch', 'p_home', 'p_trip'], notes: ['n1', 'n2', 'n3'], purchases: ['b1', 'b2', 'b3'],
+    bookmarks: ['bm1', 'bm2', 'bm3'], accounts: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7'], headings: ['h1'],
+    finance: ['income|planned|9000|Salary', 'income|actual|9000|Salary', 'income|planned|2500|Rental', 'income|actual|2300|Rental', 'expense|planned|3200|Housing', 'expense|actual|3200|Housing', 'expense|planned|2500|Family living', 'expense|actual|1840|Family living', 'expense|planned|600|Transport', 'expense|actual|720|Transport']
+  };
+  function purgeDemo(d) {
+    function keep(list, ids) { return list.filter(function (x) { return ids.indexOf(x.id) < 0; }); }
+    d.tasks = d.tasks.filter(function (t) { return DEMO.tasks.indexOf(t.id) < 0 && DEMO.taskTitles.indexOf(t.title) < 0; });
+    d.projects = keep(d.projects, DEMO.projects);
+    d.tasks.forEach(function (t) { if (DEMO.projects.indexOf(t.project) >= 0) t.project = ''; });
+    d.notes = keep(d.notes, DEMO.notes); d.notes.forEach(function (n) { if (DEMO.projects.indexOf(n.project) >= 0) n.project = ''; });
+    d.purchases = keep(d.purchases, DEMO.purchases); d.bookmarks = keep(d.bookmarks, DEMO.bookmarks);
+    d.headings = keep(d.headings, DEMO.headings); d.accounts = keep(d.accounts, DEMO.accounts);
+    d.balances = d.balances.filter(function (b) { return DEMO.accounts.indexOf(b.account) < 0; });
+    d.finance = d.finance.filter(function (r) { return DEMO.finance.indexOf([r.kind, r.type, r.amount, r.category].join('|')) < 0; });
+    return d;
+  }
+  var _load = load;
+  load = function () {
+    var raw = null; try { raw = localStorage.getItem(STORE_KEY); } catch (e) { /* ignore */ }
+    if (!raw) return DEMO_FLAG ? seedData() : emptyData();
+    var d = _load();
+    if (!d.settings.demoPurged) { if (!DEMO_FLAG) purgeDemo(d); d.settings.demoPurged = true; }
+    return d;
+  };
+  actions.resetDemo = function () {
+    if (!confirm('Erase all tasks, projects, notes, habits and money records on this device? This can’t be undone.')) return;
+    var keepBirth = db.settings.birthDate;
+    db = DEMO_FLAG ? seedData() : emptyData(); db.settings.birthDate = keepBirth;
+    save(); closeMenu(); ui.stack = []; ui.route = { name: 'home', id: '' };
+    try { history.replaceState({ depth: 0 }, '', routeHash(ui.route)); } catch (e) { /* ignore */ }
+    render(true); toast('All data erased');
+  };
+
+  /* ================= Habits ================= */
+  function habitStreak(h) {
+    var d = today(), n = 0;
+    if (!h.done[d]) d = addDays(d, -1);
+    while (h.done[d]) { n++; d = addDays(d, -1); }
+    return n;
+  }
+  function habitDays(h, days, big) {
+    var t = today();
+    return '<div class="habit-days">' + days.map(function (d) {
+      var p = parseYmd(d), on = !!h.done[d];
+      return '<button class="hday' + (d === t ? ' is-today' : '') + '" data-act="toggleHabit" data-id="' + esc(h.id) + '" data-date="' + d + '" aria-pressed="' + on + '" aria-label="' + esc(h.name + ', ' + fmtDate(d, { full: true, dow: true }) + (on ? ', done' : ', not done')) + '">' +
+        (big ? '<span class="hd-l">' + DOW[p.getDay()].charAt(0) + '</span>' : '') + '<span class="hd-n">' + (on ? '✓' : p.getDate()) + '</span></button>';
+    }).join('') + '</div>';
+  }
+  screens.habits = function () {
+    var t = today(), days = []; for (var i = 6; i >= 0; i--) days.push(addDays(t, -i));
+    var html = head('Habits', 'Tap a day to mark it done.', '<button class="btn ghost" data-act="newHabit">+ Habit</button>');
+    if (!db.habits.length) return html + '<div class="empty">Add a habit you want to keep, then tick it off every day.</div>';
+    var month = t.slice(0, 7), dayOfMonth = +t.slice(8, 10);
+    return html + db.habits.map(function (h) {
+      var s = habitStreak(h), m = 0; Object.keys(h.done).forEach(function (d) { if (h.done[d] && d.slice(0, 7) === month) m++; });
+      return '<div class="card pad habit" data-habit="' + esc(h.id) + '"><div class="row between"><button class="habit-name" data-act="editHabit" data-id="' + esc(h.id) + '">' + esc(h.name) + '</button><span class="chip' + (s ? ' accent' : '') + '" data-streak>' + (s ? '🔥 ' + s + ' day' + (s > 1 ? 's' : '') : 'No streak') + '</span></div>' +
+        habitDays(h, days, true) + '<div class="muted small">This month: ' + m + ' of ' + dayOfMonth + ' days</div></div>';
+    }).join('');
+  };
+  function habitForm(h) {
+    openSheet(h ? 'Edit habit' : 'New habit', '<form data-form="habit" data-id="' + esc(h ? h.id : '') + '" novalidate><label class="field has-mic"><span>Habit</span><input id="hb_name" name="name" value="' + esc(h ? h.name : '') + '" required maxlength="80" autofocus placeholder="e.g. Workout, No sugar, Read 20 pages">' + micBtn('#hb_name') + '</label><p class="hint" id="habitErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save habit</button>' + (h ? '<button type="button" class="btn danger block" data-act="deleteHabit" data-id="' + esc(h.id) + '">Delete habit</button>' : '') + '</div></form>');
+  }
+  submitters.habit = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#habitErr').textContent = 'Name the habit.'; return; }
+    var h = form.dataset.id ? byId(db.habits, form.dataset.id) : null;
+    if (h) h.name = name; else db.habits.push({ id: 'hb_' + uid(), name: name, createdAt: Date.now(), done: {} });
+    save(); closeSheet(); if (ui.route.name !== 'habits') go('habits'); else render(); toast('Habit saved');
+  };
+  actions.newHabit = function () { habitForm(null); };
+  actions.editHabit = function (el) { var h = byId(db.habits, el.dataset.id); if (h) habitForm(h); };
+  actions.deleteHabit = function (el) {
+    if (!confirm('Delete this habit and its history?')) return;
+    db.habits = db.habits.filter(function (h) { return h.id !== el.dataset.id; }); save(); closeSheet(); render(); toast('Habit deleted');
+  };
+  actions.toggleHabit = function (el) {
+    var h = byId(db.habits, el.dataset.id); if (!h) return;
+    var d = el.dataset.date;
+    if (h.done[d]) delete h.done[d]; else h.done[d] = true;
+    save(); render();
+  };
+
+  /* ================= Whole life: 80 years × 52 weeks ================= */
+  function utcDay(s) { var p = String(s).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]); }
+  function lifePosition(birth, on) {
+    var b = String(birth).split('-').map(Number), t = String(on).split('-').map(Number);
+    var years = t[0] - b[0]; if (t[1] < b[1] || (t[1] === b[1] && t[2] < b[2])) years--;
+    if (years < 0) return null;
+    var last = Date.UTC(b[0] + years, b[1] - 1, b[2]);
+    var days = Math.floor((utcDay(on) - last) / 86400000);
+    var week = Math.min(51, Math.floor(days / 7));
+    var next = Date.UTC(b[0] + years + 1, b[1] - 1, b[2]);
+    return { years: years, week: week, lived: years * 52 + week, toBirthday: Math.round((next - utcDay(on)) / 86400000) };
+  }
+  screens.life = function () {
+    var birth = db.settings.birthDate;
+    var html = head('Whole life', '80 × 52 = 4,160 weeks');
+    html += '<label class="card set-row" style="margin-bottom:12px"><span class="set-l">Birth date</span><input type="date" data-setting="birthDate" value="' + esc(birth) + '" max="' + today() + '"></label>';
+    if (!birth) return html + '<div class="empty">Enter your birth date to see which week of your life you’re in.</div>';
+    var pos = lifePosition(birth, today());
+    if (!pos) return html + '<div class="empty">The birth date is in the future.</div>';
+    var lived = Math.min(pos.lived, 4160), step = 7.6, cell = 6, L = 24, T = 6, W = L + 52 * step, H = T + 80 * step + 2;
+    var cur = lived < 4160 ? { r: Math.floor(lived / 52), c: lived % 52 } : null;
+    var svg = '<svg class="life-grid" viewBox="0 0 ' + W.toFixed(1) + ' ' + H.toFixed(1) + '" role="img" aria-label="Life in weeks: ' + lived + ' of 4160 weeks lived" data-lived="' + lived + '">' +
+      '<defs><pattern id="lp" x="' + L + '" y="' + T + '" width="' + step + '" height="' + step + '" patternUnits="userSpaceOnUse"><rect width="' + cell + '" height="' + cell + '" rx="1" style="fill:var(--accent)"/></pattern>' +
+      '<pattern id="fp" x="' + L + '" y="' + T + '" width="' + step + '" height="' + step + '" patternUnits="userSpaceOnUse"><rect width="' + cell + '" height="' + cell + '" rx="1" style="fill:var(--life-future)"/></pattern></defs>';
+    for (var a = 0; a <= 80; a += 10) svg += '<text x="' + (L - 5) + '" y="' + (T + Math.min(a, 79.4) * step + 5) + '" text-anchor="end" font-size="8" style="fill:var(--muted)">' + a + '</text>';
+    var fullRows = cur ? cur.r : 80;
+    if (fullRows) svg += '<rect x="' + L + '" y="' + T + '" width="' + (52 * step) + '" height="' + (fullRows * step) + '" fill="url(#lp)"/>';
+    if (cur) {
+      var y = T + cur.r * step;
+      for (var c = 0; c < 52; c++) {
+        var x = L + c * step;
+        if (c === cur.c) continue;
+        svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + cell + '" height="' + cell + '" rx="1" style="fill:' + (c < cur.c ? 'var(--accent)' : 'var(--life-future)') + '"/>';
+      }
+      if (cur.r < 79) svg += '<rect x="' + L + '" y="' + (T + (cur.r + 1) * step).toFixed(1) + '" width="' + (52 * step) + '" height="' + ((79 - cur.r) * step).toFixed(1) + '" fill="url(#fp)"/>';
+      var cx = L + cur.c * step, labelLeft = cur.c > 30;
+      var lx = labelLeft ? cx - 64 : cx + 22, ly = y - 26 < 4 ? y + 18 : y - 26;
+      svg += '<line x1="' + (cx + cell / 2) + '" y1="' + (y + cell / 2) + '" x2="' + (lx + 30) + '" y2="' + (ly + 8) + '" stroke="#F5C518" stroke-width="1.2"/>' +
+        '<rect x="' + lx + '" y="' + ly + '" width="60" height="16" rx="8" fill="#1a1d2b" stroke="#F5C518" stroke-width="1"/>' +
+        '<text x="' + (lx + 30) + '" y="' + (ly + 11.5) + '" text-anchor="middle" font-size="8.5" font-weight="700" fill="#F5C518">You are here</text>' +
+        '<rect id="youAreHere" class="life-now" x="' + (cx - 1.5) + '" y="' + (y - 1.5) + '" width="' + (cell + 3) + '" height="' + (cell + 3) + '" rx="1.5" fill="#F5C518"/>';
+    }
+    svg += '</svg>';
+    var pct = (lived / 4160 * 100).toFixed(1);
+    html += '<div class="life-stats">' +
+      '<div class="tile static"><div class="l">Weeks lived</div><div class="n" data-k="lived">' + lived.toLocaleString('en-US') + '</div><div class="muted small">' + pct + '% of 80 years</div></div>' +
+      '<div class="tile static"><div class="l">Weeks left to 80</div><div class="n" data-k="left">' + Math.max(0, 4160 - lived).toLocaleString('en-US') + '</div><div class="muted small">Next birthday in ' + pos.toBirthday + ' days</div></div></div>';
+    html += '<p class="life-where" data-k="where">Age ' + pos.years + ', week ' + (pos.week + 1) + ' of 52 · row ' + (pos.years + 1) + ', column ' + (pos.week + 1) + '</p>';
+    return html + '<div class="card life-card">' + svg + '<div class="life-legend"><span><i style="background:var(--accent)"></i>Lived</span><span><i style="background:#F5C518"></i>This week</span><span><i style="background:var(--life-future)"></i>Ahead</span></div></div>';
+  };
+  document.addEventListener('change', function (e) {
+    if (e.target.dataset && e.target.dataset.setting === 'birthDate' && ui.route.name === 'life') setTimeout(render, 0);
+  });
+
+  /* ================= Home: habits today ================= */
+  var _home3 = screens.home;
+  screens.home = function () {
+    var html = _home3();
+    if (!db.habits.length) return html;
+    var t = today();
+    var card = section('Habits today', db.habits.filter(function (h) { return h.done[t]; }).length + '/' + db.habits.length, '<button class="link-btn" data-go="habits">All habits</button>') +
+      '<div class="list">' + db.habits.map(function (h) {
+        var on = !!h.done[t];
+        return '<div class="task' + (on ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + on + '" data-act="toggleHabit" data-id="' + esc(h.id) + '" data-date="' + t + '" aria-label="' + esc(h.name) + ' today"><span class="box">' + ICON.tick + '</span></button><button class="task-body" data-go="habits"><span class="task-title">' + esc(h.name) + '</span><span class="meta"><span>' + (habitStreak(h) ? '🔥 ' + habitStreak(h) + ' day streak' : 'Start a streak') + '</span></span></button></div>';
+      }).join('') + '</div>';
+    var i = html.indexOf('<div class="section"><h2>Top priorities');
+    return i > 0 ? html.slice(0, i) + card + html.slice(i) : html + card;
+  };
+
+  /* ================= Settings: personal ================= */
+  var _settings3 = screens.settings;
+  screens.settings = function () {
+    return _settings3().replace('<div class="section"><h2>Appearance', section('Personal') + '<div class="card set-card">' + setRow('Birth date', '<input type="date" data-setting="birthDate" value="' + esc(db.settings.birthDate) + '" max="' + today() + '">', 'Used for Whole life. Stays on this device.') + '</div><div class="section"><h2>Appearance')
+      .replace('Reset demo</button>', 'Erase all data</button>');
+  };
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');
