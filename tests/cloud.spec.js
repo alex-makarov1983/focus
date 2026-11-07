@@ -14,7 +14,9 @@ function fakeSupabase() {
     async install(context) {
       await context.route(BASE + '/**', async (route) => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname, m = req.method();
-        const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+        const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'Access-Control-Expose-Headers': '*' };
+        const json = (status, body) => route.fulfill({ status, headers: cors, contentType: 'application/json', body: JSON.stringify(body) });
+        if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors, body: '' });
         if (!req.headers()['apikey']) return json(401, { message: 'No API key' });
         if (p === '/auth/v1/signup') { const b = req.postDataJSON(); if (users[b.email]) return json(422, { msg: 'User already registered' }); users[b.email] = { id: 'u-' + Object.keys(users).length, email: b.email, pw: b.password }; return json(200, issue(users[b.email])); }
         if (p === '/auth/v1/token') {
@@ -22,7 +24,7 @@ function fakeSupabase() {
           if (url.searchParams.get('grant_type') === 'password') { const u = users[b.email]; if (!u || u.pw !== b.password) return json(400, { error_description: 'Invalid login credentials' }); return json(200, issue(u)); }
           const old = b.refresh_token.slice(1), uid = tokens[old]; const u = Object.values(users).find((x) => x.id === uid); return u ? json(200, issue(u)) : json(400, { error_description: 'Invalid refresh token' });
         }
-        if (p === '/auth/v1/logout') return route.fulfill({ status: 204, body: '' });
+        if (p === '/auth/v1/logout') return route.fulfill({ status: 204, headers: cors, body: '' });
         const uid = who(req); if (!uid) return json(401, { message: 'JWT expired' });
         if (p === '/rest/v1/focus_state' && m === 'GET') { const r = rows[uid]; return json(200, r ? [{ data: r.data, vault: r.vault, version: r.version }] : []); }
         if (p === '/rest/v1/rpc/focus_save') {
@@ -35,7 +37,7 @@ function fakeSupabase() {
           const key = p.replace('/storage/v1/object/authenticated/', '').replace('/storage/v1/object/', '');
           if (!key.startsWith('photos/' + uid + '/')) return json(403, { message: 'new row violates row-level security policy' });
           if (m === 'POST') { files[key] = { body: req.postDataBuffer(), type: req.headers()['content-type'] }; return json(200, { Key: key }); }
-          const f = files[key]; return f ? route.fulfill({ status: 200, contentType: f.type, body: f.body }) : json(404, { message: 'Object not found' });
+          const f = files[key]; return f ? route.fulfill({ status: 200, headers: cors, contentType: f.type, body: f.body }) : json(404, { message: 'Object not found' });
         }
         return json(404, { message: 'not emulated: ' + m + ' ' + p });
       });
