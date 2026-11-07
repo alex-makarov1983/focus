@@ -1,7 +1,8 @@
 // @ts-check
 // Cloud sync tested against an in-memory emulator of the Supabase endpoints Focus uses.
 const { test, expect } = require('@playwright/test');
-const BASE = 'https://euwrwoxfgeylgyarrzea.supabase.co';
+// Tests never talk to the real project: the app is pointed at a fake host that only exists in this emulator.
+const BASE = 'https://supabase.test';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFTEMBQkAOz0/wa5LZ1wAAAAASUVORK5CYII=', 'base64');
 
 function fakeSupabase() {
@@ -46,7 +47,9 @@ function fakeSupabase() {
   };
 }
 async function device(browser, sb) {
-  const context = await browser.newContext(test.info().project.use);
+  const context = await browser.newContext({ ...test.info().project.use, serviceWorkers: 'block', bypassCSP: true });
+  await context.addInitScript((u) => { window.FOCUS_CLOUD_URL = u; }, BASE);
+  await context.route(/euwrwoxfgeylgyarrzea/, (r) => r.abort());
   await sb.install(context);
   const page = await context.newPage();
   await page.goto('index.html#/account'); await page.waitForSelector('html[data-ready="1"]');

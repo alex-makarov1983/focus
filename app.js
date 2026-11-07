@@ -3190,7 +3190,7 @@
 
   /* ================= v1.4: cloud sync (Supabase) ================= */
   APP_VERSION = '1.4.0';
-  var CLOUD = { url: 'https://euwrwoxfgeylgyarrzea.supabase.co', key: 'sb_publishable_Ipgaf7aQlNG0zEEat3R-Zw_QQzfwzOp' };
+  var CLOUD = { url: window.FOCUS_CLOUD_URL || 'https://euwrwoxfgeylgyarrzea.supabase.co', key: 'sb_publishable_Ipgaf7aQlNG0zEEat3R-Zw_QQzfwzOp' };
   ROUTES.account = { title: 'Cloud & account', icon: 'cloud' };
   ICON.cloud = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.6 4.5 4.5 0 0 0 7 18.5z"/></svg>';
   DRAWER_GROUPS[DRAWER_GROUPS.length - 1][1] = ['settings', 'account'];
