@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {

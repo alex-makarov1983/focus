@@ -3187,6 +3187,273 @@
     PhotoDB.keys().then(function (keys) { keys.forEach(function (k) { if (!used[k] && k.indexOf('sp_') !== 0) PhotoDB.del(k); }); }).catch(function () { /* ignore */ });
   };
 
+
+  /* ================= v1.4: cloud sync (Supabase) ================= */
+  APP_VERSION = '1.4.0';
+  var CLOUD = { url: 'https://euwrwoxfgeylgyarrzea.supabase.co', key: 'sb_publishable_Ipgaf7aQlNG0zEEat3R-Zw_QQzfwzOp' };
+  ROUTES.account = { title: 'Cloud & account', icon: 'cloud' };
+  ICON.cloud = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 9.6 4.5 4.5 0 0 0 7 18.5z"/></svg>';
+  DRAWER_GROUPS[DRAWER_GROUPS.length - 1][1] = ['settings', 'account'];
+
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+  function isIdList(a) { return Array.isArray(a) && a.length > 0 && a.every(function (x) { return x && typeof x === 'object' && 'id' in x; }); }
+  /* Three-way merge: what changed on this device wins for that item; everything else comes from the cloud. */
+  function mergeState(base, local, remote) {
+    var out = {}, keys = {};
+    [local, remote].forEach(function (o) { Object.keys(o || {}).forEach(function (k) { keys[k] = 1; }); });
+    Object.keys(keys).forEach(function (k) {
+      var b = base ? base[k] : undefined, l = local[k], r = remote[k];
+      if ((isIdList(l) || isIdList(r) || isIdList(b)) && Array.isArray(l || []) && Array.isArray(r || [])) { out[k] = mergeList(base ? (b || []) : null, l || [], r || []); return; }
+      if (!base) out[k] = r !== undefined ? r : l;
+      else out[k] = (l !== undefined && !same(l, b)) ? l : (r !== undefined ? r : l);
+    });
+    return out;
+  }
+  function mergeList(b, l, r) {
+    var B = {}, L = {}, R = {}, order = [];
+    (b || []).forEach(function (x) { B[x.id] = x; }); l.forEach(function (x) { L[x.id] = x; }); r.forEach(function (x) { R[x.id] = x; });
+    r.forEach(function (x) { order.push(x.id); }); l.forEach(function (x) { if (!R[x.id]) order.push(x.id); });
+    var res = [];
+    order.forEach(function (id) {
+      var inB = !!B[id], li = L[id], ri = R[id];
+      if (li && ri) res.push(!b ? ri : (!same(li, B[id]) ? li : ri));
+      else if (li) { if (!b || !inB || !same(li, B[id])) res.push(li); }
+      else if (ri) { if (!b || !inB || !same(ri, B[id])) res.push(ri); }
+    });
+    return res;
+  }
+
+  var Cloud = {
+    sess: readCache('focus.cloud.session'),
+    meta: readCache('focus.cloud.meta') || {},
+    state: 'idle', error: '', timer: null, inflight: null, pending: false,
+    signedIn: function () { return !!(this.sess && this.sess.user && this.sess.access_token); },
+    email: function () { return this.signedIn() ? this.sess.user.email : ''; },
+    saveSess: function (s) { this.sess = s; if (s) writeCache('focus.cloud.session', s); else localStorage.removeItem('focus.cloud.session'); },
+    saveMeta: function () { writeCache('focus.cloud.meta', this.meta); },
+    setState: function (s, err) { this.state = s; this.error = err || ''; var el = $('#cloudStatus'); if (el) el.innerHTML = cloudStatusHtml(); renderDrawerFoot(); },
+    api: function (method, path, body, opts) {
+      opts = opts || {};
+      var self = this;
+      var go = function () {
+        var h = { apikey: CLOUD.key };
+        if (!opts.raw) h['Content-Type'] = 'application/json';
+        if (opts.contentType) h['Content-Type'] = opts.contentType;
+        if (opts.auth !== false && self.sess) h.Authorization = 'Bearer ' + self.sess.access_token;
+        Object.assign(h, opts.headers || {});
+        return fetch(CLOUD.url + path, { method: method, headers: h, body: body == null ? undefined : (opts.raw ? body : JSON.stringify(body)) });
+      };
+      var ready = (opts.auth !== false && this.sess && this.sess.expires_at && this.sess.expires_at * 1000 - Date.now() < 60000) ? this.refresh() : Promise.resolve();
+      return ready.then(go).then(function (res) {
+        if (res.status === 401 && opts.auth !== false && !opts.retried && self.sess && self.sess.refresh_token) {
+          return self.refresh().then(function () { opts.retried = true; return self.api(method, path, body, opts); });
+        }
+        return res;
+      });
+    },
+    json: function (res) {
+      return res.text().then(function (t) {
+        var j = null; try { j = t ? JSON.parse(t) : null; } catch (e) { /* not json */ }
+        if (!res.ok) { var m = (j && (j.msg || j.message || j.error_description || j.error)) || ('HTTP ' + res.status); throw new Error(m); }
+        return j;
+      });
+    },
+    session: function (j) {
+      if (!j || !j.access_token) return null;
+      return { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600), user: { id: j.user.id, email: j.user.email } };
+    },
+    refresh: function () {
+      var self = this;
+      if (!this.sess || !this.sess.refresh_token) return Promise.resolve();
+      if (this.refreshing) return this.refreshing;
+      this.refreshing = this.api('POST', '/auth/v1/token?grant_type=refresh_token', { refresh_token: this.sess.refresh_token }, { auth: false }).then(function (r) { return self.json(r); })
+        .then(function (j) { self.saveSess(self.session(j)); }).catch(function (e) { if (/invalid|expired|not found/i.test(e.message)) { self.saveSess(null); self.setState('signedout', 'Session expired. Sign in again.'); } throw e; })
+        .then(function () { self.refreshing = null; }, function (e) { self.refreshing = null; throw e; });
+      return this.refreshing;
+    },
+    signIn: function (email, pw) {
+      var self = this;
+      return this.api('POST', '/auth/v1/token?grant_type=password', { email: email, password: pw }, { auth: false }).then(function (r) { return self.json(r); })
+        .then(function (j) { self.saveSess(self.session(j)); self.meta = {}; self.saveMeta(); return self.sync(); });
+    },
+    signUp: function (email, pw) {
+      var self = this;
+      return this.api('POST', '/auth/v1/signup', { email: email, password: pw }, { auth: false }).then(function (r) { return self.json(r); }).then(function (j) {
+        var s = self.session(j);
+        if (!s) return 'confirm';
+        self.saveSess(s); self.meta = {}; self.saveMeta(); return self.sync().then(function () { return 'ok'; });
+      });
+    },
+    signOut: function () {
+      var self = this;
+      return this.api('POST', '/auth/v1/logout', {}).catch(function () { /* offline is fine */ }).then(function () { self.saveSess(null); self.meta = {}; self.saveMeta(); self.setState('signedout'); });
+    },
+    localVault: function () { try { return JSON.parse(localStorage.getItem('focus.vault.v2') || 'null'); } catch (e) { return null; } },
+    pull: function () {
+      var self = this;
+      return this.api('GET', '/rest/v1/focus_state?select=data,vault,version&user_id=eq.' + this.sess.user.id).then(function (r) { return self.json(r); }).then(function (rows) { return rows && rows[0] ? rows[0] : null; });
+    },
+    applyRemote: function (row) {
+      var base = this.meta.base ? JSON.parse(this.meta.base) : null;
+      var local = clone(db);
+      var merged = mergeState(base, local, row.data || {});
+      var changedLocal = !same(merged, local);
+      if (changedLocal) { db = normalize(merged); writeLocal(); }
+      /* Safe: ciphertext only. Local edits since the last sync win, otherwise take the cloud copy. */
+      var lv = this.localVault(), bv = this.meta.baseVault ? JSON.parse(this.meta.baseVault) : null, rv = row.vault;
+      var vaultOut = lv;
+      if (rv && !same(rv, lv)) {
+        if (lv && base && !same(lv, bv)) vaultOut = lv;
+        else {
+          if (lv && !base) localStorage.setItem('focus.vault.v2.backup', JSON.stringify(lv));
+          localStorage.setItem('focus.vault.v2', JSON.stringify(rv)); vaultOut = rv;
+          if (Vault.unlocked()) Vault.finish(Vault.raw, rv).catch(function () { Vault.lock(); });
+        }
+      }
+      if (changedLocal && !sheetOpen() && !(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) render();
+      return { needPush: !same(db, row.data || {}) || !same(vaultOut, rv) };
+    },
+    remember: function (version) {
+      this.meta.version = version; this.meta.base = JSON.stringify(db); this.meta.baseVault = JSON.stringify(this.localVault());
+      this.meta.lastSync = Date.now(); this.meta.userId = this.sess.user.id; this.saveMeta();
+    },
+    push: function (tries) {
+      var self = this; tries = tries || 0;
+      var body = { p_data: db, p_vault: this.localVault(), p_base: this.meta.version || 0, p_device: (navigator.platform || 'web') + ' · ' + (navigator.standalone ? 'app' : 'browser') };
+      return this.api('POST', '/rest/v1/rpc/focus_save', body).then(function (r) { return self.json(r); }).then(function (res) {
+        var row = Array.isArray(res) ? res[0] : res;
+        if (row.conflict) {
+          if (tries > 3) throw new Error('Too many conflicts, try again');
+          self.applyRemote({ data: row.remote_data, vault: row.remote_vault });
+          self.meta.version = row.new_version;
+          return self.push(tries + 1);
+        }
+        self.remember(row.new_version);
+      });
+    },
+    sync: function () {
+      var self = this;
+      if (!this.signedIn()) return Promise.resolve();
+      if (this.inflight) { this.pending = true; return this.inflight; }
+      if (this.meta.userId && this.meta.userId !== this.sess.user.id) this.meta = {};
+      this.setState('syncing');
+      this.inflight = this.pull().then(function (row) {
+        if (!row) return self.push();
+        if (row.version === self.meta.version && self.meta.base && same(JSON.parse(self.meta.base), db) && self.meta.baseVault === JSON.stringify(self.localVault())) { self.meta.lastSync = Date.now(); self.saveMeta(); return; }
+        if (row.version === self.meta.version) return self.push();
+        var r = self.applyRemote(row);
+        if (r.needPush) { self.meta.version = row.version; return self.push(); }
+        self.remember(row.version);
+      }).then(function () {
+        self.inflight = null; self.setState('synced'); self.uploadPhotos();
+        if (self.pending) { self.pending = false; return self.sync(); }
+      }, function (e) {
+        self.inflight = null; self.pending = false;
+        self.setState(navigator.onLine === false ? 'offline' : 'error', e.message);
+      });
+      return this.inflight;
+    },
+    schedule: function () {
+      if (!this.signedIn()) return;
+      var self = this; clearTimeout(this.timer);
+      this.state = 'pending'; this.timer = setTimeout(function () { self.sync(); }, 1500);
+    },
+    /* photos */
+    photoPath: function (id) { return '/storage/v1/object/photos/' + this.sess.user.id + '/' + encodeURIComponent(id); },
+    uploadPhoto: function (id) {
+      var self = this; if (!this.signedIn()) return Promise.resolve();
+      return PhotoDB.tx('readonly', function (s) { return s.get(id); }).then(function (v) {
+        if (!v) return;
+        var body = v.enc ? JSON.stringify(v) : v.bytes, type = v.enc ? 'application/json' : (v.type || 'image/jpeg');
+        if (v instanceof Blob) { body = v; type = v.type || 'image/jpeg'; }
+        return self.api('POST', self.photoPath(id), body, { raw: true, contentType: type, headers: { 'x-upsert': 'true' } }).then(function (r) {
+          if (r.ok) { var up = readCache('focus.cloud.uploaded') || {}; up[id] = 1; writeCache('focus.cloud.uploaded', up); }
+        });
+      }).catch(function () { /* retried on next sync */ });
+    },
+    uploadPhotos: function () {
+      var self = this, up = readCache('focus.cloud.uploaded') || {};
+      PhotoDB.keys().then(function (keys) { keys.filter(function (k) { return !up[k]; }).slice(0, 10).reduce(function (p, k) { return p.then(function () { return self.uploadPhoto(k); }); }, Promise.resolve()); }).catch(function () { /* ignore */ });
+    },
+    fetchPhoto: function (id) {
+      var self = this; if (!this.signedIn()) return Promise.resolve(false);
+      return this.api('GET', '/storage/v1/object/authenticated/photos/' + this.sess.user.id + '/' + encodeURIComponent(id), null, { raw: true }).then(function (r) {
+        if (!r.ok) return false;
+        var type = r.headers.get('content-type') || 'image/jpeg';
+        return (/json/.test(type) ? r.json() : r.arrayBuffer().then(function (buf) { return { type: type, bytes: buf }; })).then(function (v) {
+          return PhotoDB.tx('readwrite', function (s) { return s.put(v, id); }).then(function () { var up = readCache('focus.cloud.uploaded') || {}; up[id] = 1; writeCache('focus.cloud.uploaded', up); return true; });
+        });
+      }).catch(function () { return false; });
+    }
+  };
+
+  /* hooks: every local save schedules a cloud sync */
+  function writeLocal() { try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { /* ignore */ } }
+  var _save5 = save;
+  save = function () { _save5(); Cloud.schedule(); };
+  var _vpersist = Vault.persist;
+  Vault.persist = function () { return _vpersist.apply(Vault, arguments).then(function (x) { Cloud.schedule(); return x; }); };
+  var _pput = PhotoDB.put;
+  PhotoDB.put = function (id, blob) { return _pput.call(PhotoDB, id, blob).then(function (x) { Cloud.uploadPhoto(id); return x; }); };
+  var _pget = PhotoDB.get;
+  PhotoDB.get = function (id) { return _pget.call(PhotoDB, id).then(function (b) { return b || Cloud.fetchPhoto(id).then(function (ok) { return ok ? _pget.call(PhotoDB, id) : null; }); }); };
+  var _sput = SafePhoto.put;
+  SafePhoto.put = function (blob) { return _sput.call(SafePhoto, blob).then(function (id) { Cloud.uploadPhoto(id); return id; }); };
+  var _sget = SafePhoto.get;
+  SafePhoto.get = function (id) { return _sget.call(SafePhoto, id).then(function (b) { return b || Cloud.fetchPhoto(id).then(function (ok) { return ok ? _sget.call(SafePhoto, id) : null; }); }); };
+
+  document.addEventListener('visibilitychange', function () {
+    if (!Cloud.signedIn()) return;
+    if (document.hidden) { if (Cloud.state === 'pending') { clearTimeout(Cloud.timer); Cloud.sync(); } }
+    else Cloud.sync();
+  });
+  window.addEventListener('online', function () { Cloud.sync(); });
+  setInterval(function () { if (!document.hidden && Cloud.signedIn()) Cloud.sync(); }, 60000);
+
+  /* ---------- UI ---------- */
+  function cloudStatusHtml() {
+    if (!Cloud.signedIn()) return '<span class="chip">Not signed in</span>';
+    var t = Cloud.meta.lastSync ? new Date(Cloud.meta.lastSync) : null, at = t ? pad(t.getHours()) + ':' + pad(t.getMinutes()) : '';
+    var map = { syncing: ['accent', 'Syncing…'], pending: ['accent', 'Saving…'], synced: ['good', 'Synced ' + at], offline: ['', 'Offline · will sync later'], error: ['overdue', 'Sync error'], idle: ['', at ? 'Synced ' + at : 'Ready'] };
+    var m = map[Cloud.state] || map.idle;
+    return '<span class="chip ' + m[0] + '" data-cloud-state="' + esc(Cloud.state) + '">' + esc(m[1]) + '</span>' + (Cloud.error && Cloud.state === 'error' ? '<span class="muted small" style="display:block;margin-top:6px">' + esc(Cloud.error) + '</span>' : '');
+  }
+  function renderDrawerFoot() { var v = $('#ver'); if (v) v.textContent = 'Version ' + APP_VERSION + ' · ' + (Cloud.signedIn() ? 'cloud sync on' : 'data on this device'); }
+  screens.account = function () {
+    var html = head('Cloud & account', 'Sync your data to every device.');
+    if (!Cloud.signedIn()) {
+      return html + '<div class="notice" style="margin-bottom:12px">Sign in to keep everything in your private cloud and open Focus from any device via the same link. Safe Storage stays encrypted on your device; the cloud only stores ciphertext.</div>' +
+        '<form class="card pad" data-form="cloudAuth" novalidate autocomplete="on"><label class="field"><span>Email</span><input type="email" name="email" autocomplete="username" autocapitalize="off" required></label>' +
+        '<label class="field"><span>Password (at least 8 characters)</span><input type="password" name="pw" autocomplete="current-password" minlength="8" required></label>' +
+        '<p class="hint" id="cloudErr" role="alert"></p><div class="actions"><button class="btn block" type="submit" name="mode" value="in">Sign in</button><button class="btn ghost block" type="button" data-act="cloudSignUp">Create account</button></div></form>' +
+        (Cloud.error ? '<p class="muted small" style="margin-top:10px">' + esc(Cloud.error) + '</p>' : '');
+    }
+    return html + '<div class="card set-card"><div class="set-row"><span><span class="set-l">Signed in</span><span class="muted small" style="display:block" id="cloudEmail">' + esc(Cloud.email()) + '</span></span><span id="cloudStatus">' + cloudStatusHtml() + '</span></div>' +
+      '<div class="set-row"><span class="muted small">Changes upload a moment after you make them and download when you open the app.</span><button class="tiny-btn" data-act="cloudSync">Sync now</button></div>' +
+      '<div class="set-row"><span class="muted small">Your data stays on this device after signing out.</span><button class="tiny-btn" style="color:var(--bad)" data-act="cloudSignOut">Sign out</button></div></div>';
+  };
+  submitters.cloudAuth = function (form, mode) {
+    var email = val(form, 'email'), pw = form.elements.pw.value, err = $('#cloudErr');
+    if (!/^\S+@\S+\.\S+$/.test(email)) { err.textContent = 'Enter your email.'; return; }
+    if (pw.length < 8) { err.textContent = 'The password needs at least 8 characters.'; return; }
+    busy(form, true); err.textContent = mode === 'up' ? 'Creating account…' : 'Signing in…';
+    (mode === 'up' ? Cloud.signUp(email, pw) : Cloud.signIn(email, pw).then(function () { return 'ok'; })).then(function (r) {
+      busy(form, false);
+      if (r === 'confirm') { err.textContent = 'Check your email and tap the confirmation link, then sign in here.'; return; }
+      render(); toast('Signed in. Your data is syncing.');
+    }).catch(function (e) { busy(form, false); err.textContent = /invalid login/i.test(e.message) ? 'Wrong email or password.' : e.message; });
+  };
+  actions.cloudSignUp = function (el) { submitters.cloudAuth(el.closest('form'), 'up'); };
+  actions.cloudSync = function () { Cloud.sync().then(function () { render(); toast(Cloud.state === 'synced' ? 'Synced' : 'Sync: ' + (Cloud.error || Cloud.state)); }); };
+  actions.cloudSignOut = function () { if (!confirm('Sign out of cloud sync on this device?')) return; Cloud.signOut().then(function () { render(); toast('Signed out'); }); };
+  var _settings5 = screens.settings;
+  screens.settings = function () {
+    return _settings5().replace('<div class="section"><h2>Personal', section('Cloud') + '<div class="card set-card"><div class="set-row"><span><span class="set-l">Cloud sync</span><span class="muted small" style="display:block">' + (Cloud.signedIn() ? esc(Cloud.email()) : 'Off: data only on this device') + '</span></span><button class="tiny-btn" data-go="account">' + (Cloud.signedIn() ? 'Manage' : 'Sign in') + '</button></div></div><div class="section"><h2>Personal');
+  };
+  var _boot5 = boot;
+  boot = function () { _boot5(); renderDrawerFoot(); if (Cloud.signedIn()) Cloud.sync(); window.FocusDebug.cloud = Cloud; };
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');

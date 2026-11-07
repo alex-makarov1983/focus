@@ -74,3 +74,13 @@ The repository and the public site contain **demo data only**. Your own data nev
 | `tests/`, `playwright.config.js` | Automated browser tests |
 | `.github/workflows/deploy.yml` | Test → deploy → live check |
 | `docs/QA.md` | Test report and iPhone checklist |
+
+## Cloud sync (Supabase)
+
+Focus syncs to a private Supabase project when you sign in under **Settings → Cloud** (or ☰ → Cloud & account).
+
+1. In Supabase open **SQL Editor → New query**, paste `supabase/schema.sql`, press **Run**.
+2. **Authentication → URL Configuration:** set Site URL to the app address.
+3. Create your account in the app, then turn off new sign-ups in **Authentication → Sign In / Providers** so nobody else can register.
+
+Each user sees only their own row and photo folder (row-level security). Safe Storage is uploaded only as ciphertext. Edits from two devices are merged per item; the device that changed an item wins for that item.
