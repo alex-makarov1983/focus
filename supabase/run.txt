@@ -1,0 +1,3 @@
+setup
+# Change the first line to setup, close-signups or open-signups and push to run the Supabase workflow.
+# run 2026-11-10T13:50:49Z

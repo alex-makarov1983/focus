@@ -2,6 +2,9 @@ name: Supabase setup
 
 # Runs only when started manually. Uses the SUPABASE_ACCESS_TOKEN repository secret (never printed).
 on:
+  push:
+    branches: [main]
+    paths: ['supabase/run.txt']
   workflow_dispatch:
     inputs:
       action:
@@ -23,6 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Pick the action
+        run: |
+          A="${{ inputs.action }}"; [ -z "$A" ] && A=$(head -n1 supabase/run.txt | tr -d '[:space:]')
+          case "$A" in setup|close-signups|open-signups) ;; *) echo "::error::Unknown action $A"; exit 1;; esac
+          echo "ACTION=$A" >> "$GITHUB_ENV"; echo "Action: $A"
       - name: Check the token is set
         env:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -33,7 +41,7 @@ jobs:
           jq -r '"Project: \(.name) · \(.region) · \(.status)"' /tmp/p.json
 
       - name: Create tables, policies and photo storage
-        if: inputs.action == 'setup'
+        if: env.ACTION == 'setup'
         env:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
@@ -42,7 +50,7 @@ jobs:
           echo "Schema: HTTP $code"; cat /tmp/r.json; echo; [ "$code" -lt 300 ] || exit 1
 
       - name: Remove the leftover test user
-        if: inputs.action == 'setup'
+        if: env.ACTION == 'setup'
         env:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
@@ -50,7 +58,7 @@ jobs:
           curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query; echo
 
       - name: Set the site address for sign-in emails
-        if: inputs.action == 'setup'
+        if: env.ACTION == 'setup'
         env:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
@@ -59,11 +67,11 @@ jobs:
           echo "Auth config: HTTP $code"; [ "$code" -lt 300 ] || { cat /tmp/r.json; exit 1; }
 
       - name: Close or open sign-ups
-        if: inputs.action != 'setup'
+        if: env.ACTION != 'setup'
         env:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          v=$([ "${{ inputs.action }}" = close-signups ] && echo true || echo false)
+          v=$([ "$ACTION" = close-signups ] && echo true || echo false)
           code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data "{\"disable_signup\": $v}" https://api.supabase.com/v1/projects/$REF/config/auth)
           echo "disable_signup=$v: HTTP $code"; [ "$code" -lt 300 ] || { cat /tmp/r.json; exit 1; }
 
