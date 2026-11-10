@@ -1,0 +1,76 @@
+name: Supabase setup
+
+# Runs only when started manually. Uses the SUPABASE_ACCESS_TOKEN repository secret (never printed).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'setup = tables, policies, photo storage, site URL; close-signups = no new accounts'
+        required: true
+        default: setup
+        type: choice
+        options: [setup, close-signups, open-signups]
+
+permissions:
+  contents: read
+
+env:
+  REF: euwrwoxfgeylgyarrzea
+  SITE: https://alex-makarov1983.github.io/focus/
+
+jobs:
+  supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the token is set
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::error::Add the SUPABASE_ACCESS_TOKEN secret first"; exit 1; fi
+          code=$(curl -s -o /tmp/p.json -w '%{http_code}' -H "Authorization: Bearer $TOKEN" https://api.supabase.com/v1/projects/$REF)
+          echo "Project lookup: HTTP $code"; [ "$code" = 200 ] || { cat /tmp/p.json; exit 1; }
+          jq -r '"Project: \(.name) · \(.region) · \(.status)"' /tmp/p.json
+
+      - name: Create tables, policies and photo storage
+        if: inputs.action == 'setup'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          jq -n --rawfile q supabase/schema.sql '{query: $q}' > /tmp/q.json
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query)
+          echo "Schema: HTTP $code"; cat /tmp/r.json; echo; [ "$code" -lt 300 ] || exit 1
+
+      - name: Remove the leftover test user
+        if: inputs.action == 'setup'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          jq -n '{query: "delete from auth.users where email = '"'"'alex@example.com'"'"' returning email"}' > /tmp/q.json
+          curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query; echo
+
+      - name: Set the site address for sign-in emails
+        if: inputs.action == 'setup'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          jq -n --arg s "$SITE" '{site_url: $s, uri_allow_list: ($s + "**")}' > /tmp/a.json
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/a.json https://api.supabase.com/v1/projects/$REF/config/auth)
+          echo "Auth config: HTTP $code"; [ "$code" -lt 300 ] || { cat /tmp/r.json; exit 1; }
+
+      - name: Close or open sign-ups
+        if: inputs.action != 'setup'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          v=$([ "${{ inputs.action }}" = close-signups ] && echo true || echo false)
+          code=$(curl -s -o /tmp/r.json -w '%{http_code}' -X PATCH -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data "{\"disable_signup\": $v}" https://api.supabase.com/v1/projects/$REF/config/auth)
+          echo "disable_signup=$v: HTTP $code"; [ "$code" -lt 300 ] || { cat /tmp/r.json; exit 1; }
+
+      - name: Verify
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          jq -n '{query: "select (select count(*) from information_schema.tables where table_schema = '"'"'public'"'"' and table_name = '"'"'focus_state'"'"') as focus_table, (select count(*) from pg_proc where proname = '"'"'focus_save'"'"') as save_fn, (select count(*) from storage.buckets where id = '"'"'photos'"'"') as photo_bucket, (select count(*) from pg_policies where tablename in ('"'"'focus_state'"'"','"'"'objects'"'"') and policyname like '"'"'focus%'"'"') as policies, (select count(*) from auth.users) as users"}' > /tmp/q.json
+          curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query | tee /tmp/v.json; echo
+          curl -s -H "Authorization: Bearer $TOKEN" https://api.supabase.com/v1/projects/$REF/config/auth | jq '{site_url, disable_signup, mailer_autoconfirm}'
