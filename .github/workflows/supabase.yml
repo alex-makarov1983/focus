@@ -80,5 +80,8 @@ jobs:
           TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           jq -n '{query: "select (select count(*) from information_schema.tables where table_schema = '"'"'public'"'"' and table_name = '"'"'focus_state'"'"') as focus_table, (select count(*) from pg_proc where proname = '"'"'focus_save'"'"') as save_fn, (select count(*) from storage.buckets where id = '"'"'photos'"'"') as photo_bucket, (select count(*) from pg_policies where tablename in ('"'"'focus_state'"'"','"'"'objects'"'"') and policyname like '"'"'focus%'"'"') as policies, (select count(*) from auth.users) as users"}' > /tmp/q.json
-          curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query | tee /tmp/v.json; echo
-          curl -s -H "Authorization: Bearer $TOKEN" https://api.supabase.com/v1/projects/$REF/config/auth | jq '{site_url, disable_signup, mailer_autoconfirm}'
+          curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/q.json https://api.supabase.com/v1/projects/$REF/database/query > /tmp/v.json
+          curl -s -H "Authorization: Bearer $TOKEN" https://api.supabase.com/v1/projects/$REF/config/auth | jq -c '{site_url, disable_signup, mailer_autoconfirm}' > /tmp/auth.json
+          echo "::notice title=Database::$(cat /tmp/v.json)"
+          echo "::notice title=Auth::$(cat /tmp/auth.json)"
+          jq -e '.[0] | (.focus_table == 1) and (.save_fn >= 1) and (.photo_bucket == 1) and (.policies >= 8)' /tmp/v.json > /dev/null || { echo "::error::Schema check failed"; exit 1; }
