@@ -3442,7 +3442,7 @@
       busy(form, false);
       if (r === 'confirm') { err.textContent = 'Check your email and tap the confirmation link, then sign in here.'; return; }
       render(); toast('Signed in. Your data is syncing.');
-    }).catch(function (e) { busy(form, false); err.textContent = /invalid login/i.test(e.message) ? 'Wrong email or password.' : e.message; });
+    }).catch(function (e) { busy(form, false); err.textContent = /invalid login/i.test(e.message) ? 'Wrong email or password.' : /not confirmed/i.test(e.message) ? 'This email isn’t confirmed yet. Use Email code above: entering the code confirms it and signs you in.' : e.message; });
   };
   actions.cloudSignUp = function (el) { submitters.cloudAuth(el.closest('form'), 'up'); };
   actions.cloudSync = function () { Cloud.sync().then(function () { render(); toast(Cloud.state === 'synced' ? 'Synced' : 'Sync: ' + (Cloud.error || Cloud.state)); }); };
