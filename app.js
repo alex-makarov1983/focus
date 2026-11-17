@@ -3454,6 +3454,343 @@
   var _boot5 = boot;
   boot = function () { _boot5(); renderDrawerFoot(); if (Cloud.signedIn()) Cloud.sync(); window.FocusDebug.cloud = Cloud; };
 
+  /* ================= v1.5: sign in with an email code, app lock (6-digit PIN or Face ID) ================= */
+  APP_VERSION = '1.5.0';
+
+  /* ---------- cloud: code by email, links from emails, password change ---------- */
+  function friendlyAuthError(e) {
+    var m = (e && e.message) || 'unknown error';
+    if (/signups? not allowed|user not found/i.test(m)) return 'No Focus account uses this email.';
+    if (/rate limit|only request this after|too many/i.test(m)) return 'Too many emails sent. Wait a few minutes and try again.';
+    if (/expired|invalid/i.test(m) && /token|otp|code/i.test(m)) return 'That code is wrong or has expired. Send a new one.';
+    if (/failed to fetch|network|load failed/i.test(m)) return 'No connection. Check the internet and try again.';
+    return m;
+  }
+  Cloud.useSession = function (j) { this.saveSess(this.session(j)); this.meta = {}; this.saveMeta(); return this.sync(); };
+  Cloud.sendCode = function (email) {
+    var self = this;
+    return this.api('POST', '/auth/v1/otp', { email: email, create_user: false }, { auth: false }).then(function (r) { return self.json(r); });
+  };
+  Cloud.verifyCode = function (email, code) {
+    var self = this;
+    return this.api('POST', '/auth/v1/verify', { type: 'email', email: email, token: code }, { auth: false }).then(function (r) { return self.json(r); })
+      .then(function (j) { return self.useSession(j); });
+  };
+  Cloud.fromLink = function (p) {
+    var self = this, at = p.get('access_token');
+    return fetch(CLOUD.url + '/auth/v1/user', { headers: { apikey: CLOUD.key, Authorization: 'Bearer ' + at } }).then(function (r) { return self.json(r); }).then(function (u) {
+      return self.useSession({ access_token: at, refresh_token: p.get('refresh_token'), expires_at: +p.get('expires_at') || 0, expires_in: +p.get('expires_in') || 3600, user: u });
+    });
+  };
+  Cloud.setPassword = function (pw) {
+    var self = this;
+    return this.api('PUT', '/auth/v1/user', { password: pw }).then(function (r) { return self.json(r); });
+  };
+  function takeAuthHash() {
+    var h = location.hash || '';
+    if (!/access_token=|error_code=|error=/.test(h)) return null;
+    var p = new URLSearchParams(h.replace(/^#\/?/, ''));
+    try { history.replaceState(null, '', location.pathname + location.search + '#/account'); } catch (e) { location.hash = '#/account'; }
+    return p;
+  }
+  function handleAuthHash(p) {
+    if (!p.get('access_token')) {
+      Cloud.error = 'That email link has expired or was already used. Sign in with a code instead.';
+      ui.authTab = 'code'; if (ui.route.name === 'account') render();
+      return;
+    }
+    Cloud.fromLink(p).then(function () {
+      render();
+      if (p.get('type') === 'recovery') { toast('Signed in. Set a new password.'); actions.changePassword(); }
+      else toast('Signed in. Your data is syncing.');
+    }).catch(function (e) { Cloud.error = friendlyAuthError(e); render(); });
+  }
+
+  /* ---------- account screen: Email code / Password tabs ---------- */
+  ui.authTab = readCache('focus.authTab') || 'code';
+  ui.codeEmail = ''; ui.codeSentAt = 0;
+  function maskEmail(e) { var i = (e || '').indexOf('@'); return i < 1 ? e : e.charAt(0) + '•••' + e.slice(i); }
+  function codeFields(prefix, email) {
+    if (!email) {
+      return '<label class="field"><span>Email</span><input type="email" name="email" autocomplete="username" autocapitalize="off" required></label>' +
+        '<p class="hint" id="' + prefix + 'Err" role="alert"></p><div class="actions"><button class="btn block" type="submit">Email me a code</button></div>';
+    }
+    return '<p class="muted small" style="margin:0">We sent a sign-in code to <strong>' + esc(email) + '</strong>. It works for a few minutes.</p>' +
+      '<label class="field"><span>Code from the email</span><input class="pin-in code-in" type="text" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="one-time-code" required autofocus></label>' +
+      '<p class="hint" id="' + prefix + 'Err" role="alert"></p><div class="actions"><button class="btn block" type="submit">Sign in</button>' +
+      '<button class="btn ghost block" type="button" data-act="codeResend" data-p="' + prefix + '">Send a new code</button>' +
+      '<button class="link-btn" type="button" data-act="codeReset">Use a different email</button></div>';
+  }
+  var _account6 = screens.account;
+  screens.account = function () {
+    if (Cloud.signedIn()) {
+      return _account6() + lockSettingsHtml() +
+        section('Password') + '<div class="card set-card"><div class="set-row"><span class="muted small">Optional. You can always sign in with a code from your email instead.</span><button class="tiny-btn" data-act="changePassword">Change</button></div></div>';
+    }
+    var html = head('Cloud & account', 'Sync your data to every device.');
+    html += '<div class="notice" style="margin-bottom:12px">Sign in to keep everything in your private cloud and open Focus from any device via the same link. Safe Storage stays encrypted on your device; the cloud only stores ciphertext.</div>';
+    html += '<div class="seg" role="group" aria-label="How to sign in"><button data-act="authTab" data-v="code" aria-pressed="' + (ui.authTab === 'code') + '">Email code</button><button data-act="authTab" data-v="pw" aria-pressed="' + (ui.authTab === 'pw') + '">Password</button></div>';
+    if (ui.authTab === 'code') {
+      html += '<form class="card pad" data-form="cloudCode" novalidate autocomplete="on">' + codeFields('cloud', ui.codeEmail) + '</form>';
+    } else {
+      html += '<form class="card pad" data-form="cloudAuth" novalidate autocomplete="on"><label class="field"><span>Email</span><input type="email" name="email" autocomplete="username" autocapitalize="off" required></label>' +
+        '<label class="field"><span>Password (at least 8 characters)</span><input type="password" name="pw" autocomplete="current-password" minlength="8" required></label>' +
+        '<p class="hint" id="cloudErr" role="alert"></p><div class="actions"><button class="btn block" type="submit" name="mode" value="in">Sign in</button><button class="btn ghost block" type="button" data-act="cloudSignUp">Create account</button>' +
+        '<button class="link-btn" type="button" data-act="authTab" data-v="code">Forgot password? Sign in with a code</button></div></form>';
+    }
+    if (Cloud.error) html += '<p class="muted small" style="margin-top:10px" id="cloudNote">' + esc(Cloud.error) + '</p>';
+    if (AppLock.on()) html += section('App lock') + '<div class="card set-card"><div class="set-row"><span class="muted small">App lock is on for this device.</span><button class="tiny-btn" style="color:var(--bad)" data-act="lockOff">Turn off</button></div></div>';
+    return html;
+  };
+  actions.authTab = function (el) { ui.authTab = el.dataset.v; writeCache('focus.authTab', ui.authTab); Cloud.error = ''; render(); };
+  actions.codeReset = function () { ui.codeEmail = ''; render(); };
+  function sendCodeTo(email, errEl, done) {
+    if (Date.now() - ui.codeSentAt < 60000 && ui.codeEmail === email) { errEl.textContent = 'A code was just sent. You can ask for a new one in ' + Math.ceil((60000 - (Date.now() - ui.codeSentAt)) / 1000) + ' s.'; return; }
+    errEl.textContent = 'Sending…';
+    Cloud.sendCode(email).then(function () { ui.codeEmail = email; ui.codeSentAt = Date.now(); done(); })
+      .catch(function (e) { errEl.textContent = friendlyAuthError(e); });
+  }
+  submitters.cloudCode = function (form) {
+    var err = $('#cloudErr');
+    if (!ui.codeEmail) {
+      var email = val(form, 'email').toLowerCase();
+      if (!/^\S+@\S+\.\S+$/.test(email)) { err.textContent = 'Enter your email.'; return; }
+      busy(form, true);
+      sendCodeTo(email, err, function () { render(); toast('Code sent. Check your email.'); });
+      setTimeout(function () { busy(form, false); }, 400);
+      return;
+    }
+    var code = val(form, 'code').replace(/\D/g, '');
+    if (code.length < 6) { err.textContent = 'Enter the code from the email.'; return; }
+    busy(form, true); err.textContent = 'Signing in…';
+    Cloud.verifyCode(ui.codeEmail, code).then(function () {
+      ui.codeEmail = ''; Cloud.error = ''; render(); toast('Signed in. Your data is syncing.');
+    }).catch(function (e) { busy(form, false); err.textContent = friendlyAuthError(e); });
+  };
+  actions.codeResend = function (el) {
+    var err = $('#' + el.dataset.p + 'Err'), email = ui.codeEmail;
+    sendCodeTo(email, err, function () { err.textContent = 'New code sent.'; });
+  };
+  actions.changePassword = function () {
+    openSheet('Change password', '<form data-form="newPassword" novalidate autocomplete="on"><input type="email" name="email" value="' + esc(Cloud.email()) + '" autocomplete="username" hidden>' +
+      '<label class="field"><span>New password (at least 8 characters)</span><input type="password" name="pw" autocomplete="new-password" minlength="8" required autofocus></label>' +
+      '<label class="field"><span>Repeat new password</span><input type="password" name="pw2" autocomplete="new-password" minlength="8" required></label>' +
+      '<p class="hint" id="pwErr" role="alert"></p><div class="actions"><button class="btn block" type="submit">Save password</button></div></form>');
+  };
+  submitters.newPassword = function (form) {
+    var pw = form.elements.pw.value, err = $('#pwErr');
+    if (pw.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
+    if (pw !== form.elements.pw2.value) { err.textContent = 'Passwords don’t match.'; return; }
+    busy(form, true); err.textContent = 'Saving…';
+    Cloud.setPassword(pw).then(function () { closeSheet(); toast('Password saved'); })
+      .catch(function (e) { busy(form, false); err.textContent = friendlyAuthError(e); });
+  };
+
+  /* ---------- app lock: 6-digit PIN, Face ID, reset by email code ---------- */
+  var LOCK_KEY = 'focus.applock.v1';
+  var AppLock = {
+    open: false, hiddenAt: 0, entry: '', mode: 'pin',
+    cfg: function () { return readCache(LOCK_KEY); },
+    put: function (c) { if (c) writeCache(LOCK_KEY, c); else { try { localStorage.removeItem(LOCK_KEY); } catch (e) { /* ignore */ } } },
+    on: function () { var c = this.cfg(); return !!(c && c.pin); },
+    faceIdOn: function () { var c = this.cfg(); return !!(c && c.faceId); },
+    after: function () { var c = this.cfg(); return c && c.after != null ? c.after : 1; },
+    hash: function (pin, salt, iter) {
+      return crypto.subtle.importKey('raw', enc8.encode(pin), 'PBKDF2', false, ['deriveBits']).then(function (base) {
+        return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: iter, hash: 'SHA-256' }, base, 256);
+      }).then(function (bits) { return b64e(new Uint8Array(bits)); });
+    },
+    setPin: function (pin) {
+      var self = this, salt = rnd(16), iter = 310000, old = this.cfg() || {};
+      return this.hash(pin, salt, iter).then(function (h) {
+        self.put({ pin: { salt: b64e(salt), iter: iter, hash: h }, faceId: old.faceId || null, after: old.after != null ? old.after : 1, email: Cloud.email() || old.email || '', fails: 0, lockUntil: 0 });
+      });
+    },
+    checkPin: function (pin) {
+      var self = this, c = this.cfg();
+      if (c.lockUntil && Date.now() < c.lockUntil) return Promise.reject(new Error('wait'));
+      return this.hash(pin, b64d(c.pin.salt), c.pin.iter).then(function (h) {
+        c = self.cfg();
+        if (h === c.pin.hash) { c.fails = 0; c.lockUntil = 0; self.put(c); return true; }
+        c.fails = (c.fails || 0) + 1; c.lockUntil = c.fails >= 5 ? Date.now() + 30000 * Math.pow(2, Math.min(c.fails - 5, 6)) : 0;
+        self.put(c); throw new Error(c.lockUntil ? 'wait' : 'wrong');
+      });
+    },
+    enableFaceId: function () {
+      var self = this;
+      return navigator.credentials.create({ publicKey: {
+        rp: { name: 'Focus' }, user: { id: rnd(16), name: 'focus-app-lock', displayName: 'Focus app lock' }, challenge: rnd(32),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' }, timeout: 60000 } })
+        .then(function (cred) { var c = self.cfg(); c.faceId = { credId: b64e(new Uint8Array(cred.rawId)) }; self.put(c); });
+    },
+    checkFaceId: function () {
+      var c = this.cfg();
+      return navigator.credentials.get({ publicKey: { challenge: rnd(32), allowCredentials: [{ type: 'public-key', id: b64d(c.faceId.credId) }], userVerification: 'required', timeout: 60000 } })
+        .then(function (a) { if (!a) throw new Error('cancelled'); return true; });
+    }
+  };
+  var FACE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 16a3.5 3.5 0 0 0 5 0"/></svg>';
+  var DEL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="M12.5 9.5l5 5M17.5 9.5l-5 5"/></svg>';
+  function lockEl() { return document.getElementById('appLock'); }
+  function lockWaitMsg() { var c = AppLock.cfg(); return c && c.lockUntil && Date.now() < c.lockUntil ? 'Too many attempts. Try again in ' + Math.ceil((c.lockUntil - Date.now()) / 1000) + ' s.' : ''; }
+  function lockPadHtml() {
+    var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(function (d) { return '<button type="button" class="lock-key" data-lock="digit" data-d="' + d + '">' + d + '</button>'; }).join('');
+    var face = AppLock.faceIdOn() ? '<button type="button" class="lock-key lock-icon" data-lock="face" aria-label="Unlock with Face ID">' + FACE_ICON + '</button>' : '<span></span>';
+    return '<div class="lock-pad">' + keys + face + '<button type="button" class="lock-key" data-lock="digit" data-d="0">0</button><button type="button" class="lock-key lock-icon" data-lock="del" aria-label="Delete last digit">' + DEL_ICON + '</button></div>';
+  }
+  function drawLock() {
+    var el = lockEl(); if (!el) return;
+    var c = AppLock.cfg() || {}, box;
+    if (AppLock.mode === 'pin') {
+      var dots = ''; for (var i = 0; i < 6; i++) dots += '<i class="' + (i < AppLock.entry.length ? 'on' : '') + '"></i>';
+      box = '<div class="lock-mark">' + ICON.lock + '</div><h1 class="lock-h" id="lockTitle">Enter your PIN</h1>' +
+        '<div class="lock-dots" id="lockDots" aria-label="' + AppLock.entry.length + ' of 6 digits entered">' + dots + '</div><p class="lock-err" id="lockErr" role="alert">' + esc(lockWaitMsg()) + '</p>' +
+        lockPadHtml() + '<button type="button" class="link-btn lock-forgot" data-lock="forgot">Forgot PIN?</button>';
+    } else {
+      var email = c.email || '';
+      box = '<div class="lock-mark">' + ICON.lock + '</div><h1 class="lock-h" id="lockTitle">Reset your PIN</h1>' +
+        (email ? '<form class="lock-form" data-lockform="1" novalidate>' + (ui.lockCodeSent
+          ? '<p class="muted small">Enter the code we sent to ' + esc(maskEmail(email)) + '. App lock will turn off, and you can set a new PIN in Cloud &amp; account.</p><input class="input pin-in code-in" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="one-time-code" aria-label="Code from the email" autofocus><p class="lock-err" id="lockErr" role="alert"></p><button class="btn block" type="submit">Confirm code</button>'
+          : '<p class="muted small">We’ll email a code to ' + esc(maskEmail(email)) + ', the account this lock belongs to.</p><p class="lock-err" id="lockErr" role="alert"></p><button class="btn block" type="submit">Email me a code</button>') + '</form>'
+          : '<p class="muted small">This lock isn’t linked to an email account, so it can’t be reset.</p>') +
+        '<button type="button" class="link-btn lock-forgot" data-lock="back">Back to PIN</button>';
+    }
+    el.innerHTML = '<div class="lock-box">' + box + '</div>';
+    var f = el.querySelector('[autofocus]'); if (f) f.focus();
+  }
+  function showLock() {
+    if (!AppLock.on() || lockEl()) return;
+    AppLock.open = true; AppLock.entry = ''; AppLock.mode = 'pin'; ui.lockCodeSent = false;
+    if (sheetWrap && typeof closeSheet === 'function' && sheetOpen && sheetOpen()) closeSheet(true);
+    var el = document.createElement('div');
+    el.id = 'appLock'; el.className = 'lock'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'lockTitle');
+    Array.prototype.forEach.call(document.body.children, function (c) { c.setAttribute('inert', ''); c.setAttribute('data-lock-inert', ''); });
+    document.body.appendChild(el); document.documentElement.classList.add('locked');
+    drawLock();
+  }
+  function hideLock() {
+    var el = lockEl(); AppLock.open = false; AppLock.entry = '';
+    document.documentElement.classList.remove('locked');
+    $all('[data-lock-inert]').forEach(function (c) { c.removeAttribute('inert'); c.removeAttribute('data-lock-inert'); });
+    if (el) { el.classList.add('out'); setTimeout(function () { el.remove(); }, 180); }
+  }
+  function lockErr(msg) { var e = $('#lockErr'); if (e) e.textContent = msg; }
+  function lockShake() {
+    var d = $('#lockDots'); if (!d) return;
+    d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake');
+  }
+  function lockDigit(d) {
+    if (AppLock.mode !== 'pin' || AppLock.entry.length >= 6) return;
+    if (lockWaitMsg()) { lockErr(lockWaitMsg()); return; }
+    AppLock.entry += d; drawLock();
+    if (AppLock.entry.length === 6) {
+      var pin = AppLock.entry;
+      AppLock.checkPin(pin).then(hideLock, function (e) {
+        AppLock.entry = ''; drawLock(); lockShake();
+        lockErr(e.message === 'wait' ? lockWaitMsg() : 'Wrong PIN. Try again.');
+      });
+    }
+  }
+  function lockFace() {
+    AppLock.checkFaceId().then(hideLock, function (e) {
+      lockErr(e && e.name === 'NotAllowedError' ? 'Face ID was cancelled. Use your PIN.' : 'Face ID didn’t work. Use your PIN.');
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-lock]'); if (!b || !lockEl() || !lockEl().contains(b)) return;
+    e.preventDefault(); e.stopPropagation();
+    var k = b.dataset.lock;
+    if (k === 'digit') lockDigit(b.dataset.d);
+    else if (k === 'del') { AppLock.entry = AppLock.entry.slice(0, -1); drawLock(); }
+    else if (k === 'face') lockFace();
+    else if (k === 'forgot') { AppLock.mode = 'reset'; ui.lockCodeSent = false; drawLock(); }
+    else if (k === 'back') { AppLock.mode = 'pin'; AppLock.entry = ''; drawLock(); }
+  }, true);
+  document.addEventListener('submit', function (e) {
+    var form = e.target; if (!form.dataset || !form.dataset.lockform) return;
+    e.preventDefault(); e.stopPropagation();
+    var email = (AppLock.cfg() || {}).email, btn = form.querySelector('[type=submit]');
+    if (!ui.lockCodeSent) {
+      btn.disabled = true; lockErr('Sending…');
+      Cloud.sendCode(email).then(function () { ui.lockCodeSent = true; drawLock(); }).catch(function (x) { btn.disabled = false; lockErr(friendlyAuthError(x)); });
+      return;
+    }
+    var code = String(form.elements.code.value || '').replace(/\D/g, '');
+    if (code.length < 6) { lockErr('Enter the code from the email.'); return; }
+    btn.disabled = true; lockErr('Checking…');
+    Cloud.verifyCode(email, code).then(function () {
+      AppLock.put(null); hideLock(); go('account'); render(); toast('App lock is off. Set a new PIN below.');
+    }).catch(function (x) { btn.disabled = false; lockErr(friendlyAuthError(x)); });
+  }, true);
+  document.addEventListener('keydown', function (e) {
+    if (!AppLock.open || AppLock.mode !== 'pin') return;
+    if (/^[0-9]$/.test(e.key)) { e.preventDefault(); lockDigit(e.key); }
+    else if (e.key === 'Backspace') { e.preventDefault(); AppLock.entry = AppLock.entry.slice(0, -1); drawLock(); }
+  }, true);
+  document.addEventListener('visibilitychange', function () {
+    if (!AppLock.on()) return;
+    if (document.hidden) { AppLock.hiddenAt = Date.now(); if (AppLock.after() === 0) showLock(); }
+    else if (AppLock.hiddenAt && Date.now() - AppLock.hiddenAt >= AppLock.after() * 60000) showLock();
+  });
+
+  /* ---------- app lock settings ---------- */
+  function lockSettingsHtml() {
+    var on = AppLock.on(), face = AppLock.faceIdOn(), after = AppLock.after();
+    var html = section('App lock') + '<div class="card set-card">';
+    if (!on) return html + '<div class="set-row"><span><span class="set-l">Lock Focus</span><span class="muted small" style="display:block">Ask for a 6-digit PIN or Face ID when you open the app.</span></span><button class="tiny-btn" data-act="lockSetup">Set up</button></div></div>';
+    html += '<div class="set-row"><span><span class="set-l">6-digit PIN</span><span class="muted small" style="display:block">On for this device</span></span><button class="tiny-btn" data-act="lockSetup">Change PIN</button></div>';
+    if (Vault.faceIdCapable()) html += '<div class="set-row"><span class="set-l">Face ID</span>' + (face ? '<button class="tiny-btn" data-act="lockFaceOff">Turn off</button>' : '<button class="tiny-btn" data-act="lockFaceOn">Turn on</button>') + '</div>';
+    html += '<div class="set-row"><span class="set-l">Lock again after leaving</span><select data-lockafter aria-label="Lock again after leaving">' +
+      [[0, 'Immediately'], [1, '1 minute'], [5, '5 minutes'], [15, '15 minutes']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === after ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>';
+    html += '<div class="set-row"><span class="muted small">Locks the screen on this device. Safe Storage keeps its own PIN. Forgot the PIN? Reset it with a code sent to your email.</span><button class="tiny-btn" style="color:var(--bad)" data-act="lockOff">Turn off</button></div>';
+    return html + '</div>';
+  }
+  function lockPinInput(name, label, extra) {
+    return '<label class="field"><span>' + label + '</span><input class="pin-in" type="password" name="' + name + '" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required' + (extra || '') + '></label>';
+  }
+  actions.lockSetup = function () {
+    if (!Vault.supported()) { toast('App lock needs a secure (https) connection'); return; }
+    openSheet(AppLock.on() ? 'Change PIN' : 'Set up app lock', '<form data-form="lockPin" autocomplete="off" novalidate>' +
+      lockPinInput('pin', 'New 6-digit PIN', ' autofocus') + lockPinInput('pin2', 'Repeat PIN') +
+      '<p class="hint" id="lockPinErr" role="alert"></p><div class="actions"><button class="btn block" type="submit">Save PIN</button></div></form>');
+  };
+  submitters.lockPin = function (form) {
+    var pin = form.elements.pin.value, err = $('#lockPinErr'), first = !AppLock.on();
+    if (!/^\d{6}$/.test(pin)) { err.textContent = 'Use exactly 6 digits.'; return; }
+    if (/^(\d)\1{5}$/.test(pin) || '0123456789'.indexOf(pin) >= 0 || '9876543210'.indexOf(pin) >= 0) { err.textContent = 'That PIN is too easy to guess. Pick another.'; return; }
+    if (pin !== form.elements.pin2.value) { err.textContent = 'PINs don’t match.'; return; }
+    busy(form, true);
+    AppLock.setPin(pin).then(function () {
+      closeSheet(); render(); toast(first ? 'App lock is on' : 'PIN changed');
+      if (first && Vault.faceIdCapable() && !AppLock.faceIdOn()) setTimeout(function () { toast('Use Face ID too?', 'Turn on', actions.lockFaceOn); }, 1600);
+    }).catch(function (e) { busy(form, false); err.textContent = 'Could not save the PIN: ' + e.message; });
+  };
+  actions.lockFaceOn = function () {
+    if (!AppLock.on()) { actions.lockSetup(); return; }
+    AppLock.enableFaceId().then(function () { render(); toast('Face ID is on'); })
+      .catch(function (e) { toast(e && e.name === 'NotAllowedError' ? 'Face ID was cancelled' : 'Face ID isn’t available here: ' + ((e && e.message) || 'unknown')); });
+  };
+  actions.lockFaceOff = function () { var c = AppLock.cfg(); c.faceId = null; AppLock.put(c); render(); toast('Face ID is off'); };
+  actions.lockOff = function () { if (!confirm('Turn off app lock on this device?')) return; AppLock.put(null); render(); toast('App lock is off'); };
+  document.addEventListener('change', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-lockafter')) return;
+    var c = AppLock.cfg(); if (!c) return; c.after = +e.target.value; AppLock.put(c); toast('Saved');
+  });
+
+  /* An email link opened while Focus is already running only changes the hash: catch it before the router does. */
+  var _parseHash6 = parseHash;
+  parseHash = function () { var p = takeAuthHash(); if (p) setTimeout(function () { handleAuthHash(p); }, 0); return _parseHash6(); };
+  var _boot6 = boot;
+  boot = function () {
+    var p = takeAuthHash();
+    showLockEarly();
+    _boot6();
+    window.FocusDebug.lock = AppLock;
+    if (p) handleAuthHash(p);
+  };
+  function showLockEarly() { if (AppLock.on()) showLock(); }
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');

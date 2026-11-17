@@ -6,12 +6,13 @@ const BASE = 'https://supabase.test';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFTEMBQkAOz0/wa5LZ1wAAAAASUVORK5CYII=', 'base64');
 
 function fakeSupabase() {
-  const users = {}, tokens = {}, rows = {}, files = {};
+  const users = {}, tokens = {}, rows = {}, files = {}, codes = {};
   let n = 0;
   const issue = (u) => { const t = 'tok' + (++n); tokens[t] = u.id; return { access_token: t, refresh_token: 'r' + t, expires_in: 3600, user: { id: u.id, email: u.email } }; };
   const who = (req) => tokens[(req.headers()['authorization'] || '').replace('Bearer ', '')];
   return {
-    rows,
+    rows, codes, users,
+    mint(email) { return issue(users[email]); },
     async install(context) {
       await context.route(BASE + '/**', async (route) => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname, m = req.method();
@@ -25,8 +26,11 @@ function fakeSupabase() {
           if (url.searchParams.get('grant_type') === 'password') { const u = users[b.email]; if (!u || u.pw !== b.password) return json(400, { error_description: 'Invalid login credentials' }); return json(200, issue(u)); }
           const old = b.refresh_token.slice(1), uid = tokens[old]; const u = Object.values(users).find((x) => x.id === uid); return u ? json(200, issue(u)) : json(400, { error_description: 'Invalid refresh token' });
         }
+        if (p === '/auth/v1/otp') { const b = req.postDataJSON(); if (!users[b.email]) return json(422, { code: 'otp_disabled', msg: 'Signups not allowed for otp' }); codes[b.email] = '123456'; return json(200, {}); }
+        if (p === '/auth/v1/verify') { const b = req.postDataJSON(); if (b.type !== 'email' || !codes[b.email] || codes[b.email] !== b.token) return json(403, { code: 'otp_expired', msg: 'Token has expired or is invalid' }); delete codes[b.email]; return json(200, issue(users[b.email])); }
         if (p === '/auth/v1/logout') return route.fulfill({ status: 204, headers: cors, body: '' });
         const uid = who(req); if (!uid) return json(401, { message: 'JWT expired' });
+        if (p === '/auth/v1/user') { const u = Object.values(users).find((x) => x.id === uid); if (m === 'PUT') u.pw = req.postDataJSON().password; return json(200, { id: u.id, email: u.email }); }
         if (p === '/rest/v1/focus_state' && m === 'GET') { const r = rows[uid]; return json(200, r ? [{ data: r.data, vault: r.vault, version: r.version }] : []); }
         if (p === '/rest/v1/rpc/focus_save') {
           const b = req.postDataJSON(), cur = rows[uid];
@@ -56,6 +60,7 @@ async function device(browser, sb) {
   return { context, page };
 }
 async function signIn(page, mode = 'in') {
+  await page.locator('[data-act=authTab][data-v=pw]').first().click();
   await page.locator('input[name=email]').fill('alex@example.com');
   await page.locator('input[name=pw]').fill('long-password-1');
   if (mode === 'up') await page.locator('[data-act=cloudSignUp]').click(); else await page.locator('form[data-form=cloudAuth] button[type=submit]').click();
@@ -161,5 +166,123 @@ test('cloud: wrong password is reported; signing out keeps local data', async ({
   await expect(A.page.locator('#cloudErr')).toHaveText('Wrong email or password.');
   const local = await A.page.evaluate(() => JSON.parse(localStorage.getItem('focus.data.v1')).tasks.map((t) => t.title));
   expect(local).toContain('Keep me');
+  await A.context.close();
+});
+
+/* ---------- v1.5: email code, email links, app lock ---------- */
+async function code(page, text) { await page.locator('input[name=code]').fill(text); await page.locator('form[data-form=cloudCode] button[type=submit]').click(); }
+async function tapPin(page, pin) { for (const d of pin) await page.locator(`#appLock [data-lock=digit][data-d="${d}"]`).click(); }
+async function setLock(page, pin) {
+  await page.evaluate(() => { location.hash = '#/account'; });
+  await page.locator('[data-act=lockSetup]').click();
+  await page.locator('#sheet input[name=pin]').fill(pin);
+  await page.locator('#sheet input[name=pin2]').fill(pin);
+  await page.locator('#sheet button[type=submit]').click();
+  await expect(page.locator('#toastMsg')).toHaveText('App lock is on');
+}
+async function reload(page) { await page.reload(); await page.waitForSelector('html[data-ready="1"]'); }
+
+test('login: a code from email signs in on a second device; an unknown email is refused', async ({ browser }) => {
+  const sb = fakeSupabase();
+  const A = await device(browser, sb); await signIn(A.page, 'up');
+  await addTask(A.page, 'From the phone'); await syncNow(A.page);
+  const B = await device(browser, sb);
+  await B.page.locator('input[name=email]').fill('nobody@example.com');
+  await B.page.locator('form[data-form=cloudCode] button[type=submit]').click();
+  await expect(B.page.locator('#cloudErr')).toHaveText('No Focus account uses this email.');
+  await B.page.locator('input[name=email]').fill('alex@example.com');
+  await B.page.locator('form[data-form=cloudCode] button[type=submit]').click();
+  await expect(B.page.locator('input[name=code]')).toBeVisible();
+  await code(B.page, '000000');
+  await expect(B.page.locator('#cloudErr')).toHaveText('That code is wrong or has expired. Send a new one.');
+  await code(B.page, '123456');
+  await expect(B.page.locator('#cloudEmail')).toHaveText('alex@example.com');
+  await B.page.evaluate(() => { location.hash = '#/inbox'; });
+  await expect(B.page.locator('#screen .task-title', { hasText: 'From the phone' })).toHaveCount(1);
+  await A.context.close(); await B.context.close();
+});
+
+test('login: the link in a Supabase email signs in; an expired link explains what to do', async ({ browser }) => {
+  const sb = fakeSupabase();
+  const A = await device(browser, sb); await signIn(A.page, 'up');
+  const B = await device(browser, sb);
+  await B.page.goto('index.html#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired');
+  await B.page.waitForSelector('html[data-ready="1"]');
+  await expect(B.page.locator('#cloudNote')).toContainText('expired');
+  const t = sb.mint('alex@example.com');
+  await B.page.goto(`index.html#access_token=${t.access_token}&refresh_token=${t.refresh_token}&expires_in=3600&token_type=bearer&type=magiclink`);
+  await B.page.waitForSelector('html[data-ready="1"]');
+  await expect(B.page.locator('#cloudEmail')).toHaveText('alex@example.com');
+  expect(await B.page.evaluate(() => location.hash)).toBe('#/account');
+  await A.context.close(); await B.context.close();
+});
+
+test('login: password can be changed in the app', async ({ browser }) => {
+  const sb = fakeSupabase();
+  const A = await device(browser, sb); await signIn(A.page, 'up');
+  await A.page.locator('[data-act=changePassword]').click();
+  await A.page.locator('#sheet input[name=pw]').fill('brand-new-pass');
+  await A.page.locator('#sheet input[name=pw2]').fill('brand-new-pass');
+  await A.page.locator('#sheet button[type=submit]').click();
+  await expect(A.page.locator('#toastMsg')).toHaveText('Password saved');
+  expect(sb.users['alex@example.com'].pw).toBe('brand-new-pass');
+  await A.context.close();
+});
+
+test('lock: 6-digit PIN is asked on launch and after leaving; wrong PIN is refused', async ({ browser }) => {
+  const sb = fakeSupabase();
+  const A = await device(browser, sb); await signIn(A.page, 'up');
+  await A.page.locator('[data-act=lockSetup]').click();
+  await A.page.locator('#sheet input[name=pin]').fill('123456');
+  await A.page.locator('#sheet input[name=pin2]').fill('123456');
+  await A.page.locator('#sheet button[type=submit]').click();
+  await expect(A.page.locator('#lockPinErr')).toContainText('too easy');
+  await A.page.locator('[data-act=closeSheet]').click();
+  await setLock(A.page, '258014');
+  await reload(A.page);
+  await expect(A.page.locator('#appLock')).toBeVisible();
+  await expect(A.page.locator('#screen')).toHaveAttribute('inert', '');
+  await tapPin(A.page, '258015');
+  await expect(A.page.locator('#lockErr')).toHaveText('Wrong PIN. Try again.');
+  await tapPin(A.page, '258014');
+  await expect(A.page.locator('#appLock')).toHaveCount(0);
+  await A.page.locator('select[data-lockafter]').selectOption('0');
+  await A.page.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+  await expect(A.page.locator('#appLock')).toBeVisible();
+  await A.page.keyboard.type('258014');
+  await expect(A.page.locator('#appLock')).toHaveCount(0);
+  await A.context.close();
+});
+
+test('lock: a forgotten PIN is reset with a code from email', async ({ browser }) => {
+  const sb = fakeSupabase();
+  const A = await device(browser, sb); await signIn(A.page, 'up');
+  await setLock(A.page, '470259');
+  await reload(A.page);
+  await A.page.locator('#appLock [data-lock=forgot]').click();
+  await expect(A.page.locator('#appLock')).toContainText('a•••@example.com');
+  await A.page.locator('#appLock button[type=submit]').click();
+  await A.page.locator('#appLock input[name=code]').fill('123456');
+  await A.page.locator('#appLock button[type=submit]').click();
+  await expect(A.page.locator('#appLock')).toHaveCount(0);
+  await expect(A.page.locator('#toastMsg')).toHaveText('App lock is off. Set a new PIN below.');
+  await expect(A.page.locator('[data-act=lockSetup]')).toHaveText('Set up');
+  await A.context.close();
+});
+
+test('lock: Face ID unlocks (platform authenticator)', async ({ browser, browserName }) => {
+  test.skip(browserName !== 'chromium', 'virtual authenticator needs Chromium');
+  const sb = fakeSupabase();
+  const A = await device(browser, sb);
+  const cdp = await A.context.newCDPSession(A.page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await signIn(A.page, 'up');
+  await setLock(A.page, '470259');
+  await A.page.locator('[data-act=lockFaceOn]').click();
+  await expect(A.page.locator('#toastMsg')).toHaveText('Face ID is on');
+  await reload(A.page);
+  await A.page.locator('#appLock [data-lock=face]').click();
+  await expect(A.page.locator('#appLock')).toHaveCount(0);
   await A.context.close();
 });

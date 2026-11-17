@@ -84,3 +84,10 @@ Focus syncs to a private Supabase project when you sign in under **Settings → 
 3. Create your account in the app, then turn off new sign-ups in **Authentication → Sign In / Providers** so nobody else can register.
 
 Each user sees only their own row and photo folder (row-level security). Safe Storage is uploaded only as ciphertext. Edits from two devices are merged per item; the device that changed an item wins for that item.
+
+## Sign-in options and app lock (v1.5)
+
+- **Email code.** Cloud & account → Email code: Focus asks Supabase to email a one-time code (`/auth/v1/otp` with `create_user: false`, so it never creates accounts) and verifies it with `/auth/v1/verify`. For the email to contain the code, the Supabase **Magic Link** and **Confirm signup** templates must include `{{ .Token }}`.
+- **Email links** (magic link, confirmation, password recovery) that open Focus are read from the URL hash and turned into a session; expired links show a hint to use a code.
+- **Change password** in Cloud & account (`PUT /auth/v1/user`).
+- **App lock** (per device, stored in `focus.applock.v1`): a 6-digit PIN (PBKDF2-SHA-256, 310k iterations, 5 tries then growing waits) and optional Face ID (platform WebAuthn with user verification). Locks on launch and after leaving the app for the chosen time. A forgotten PIN is reset with an email code to the account the lock belongs to. The lock covers the screen; it doesn't encrypt the data stored in the browser (Safe Storage is encrypted separately).
