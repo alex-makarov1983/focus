@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -127,9 +127,7 @@ test('every button on every screen is wired to a real action', async ({ page }) 
 
 test('multi-step Back, plus browser/iOS swipe back', async ({ page }) => {
   await open(page);
-  await press(page, page.locator('#moreTab'));
-  await expect(page.locator('#sheet .choice')).toHaveText(['Projects', 'Notes', 'Safe', 'Money']);
-  await press(page, page.locator('#sheet .choice', { hasText: 'Projects' }));
+  await viaMenu(page, 'Projects');
   await expect(h1(page)).toHaveText('Projects');
   await press(page, page.locator('.item-card', { hasText: 'Home renovation' }));
   await expect(h1(page)).toHaveText('Home renovation');
@@ -371,14 +369,16 @@ test('works offline after the first visit', async ({ page, context, browserName 
 
 /* ===================== v1.1 features ===================== */
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFTEMBQkAOz0/wa5LZ1wAAAAASUVORK5CYII=', 'base64');
-test('Home: 4 city clocks, USDT/RUB, BTC, Moscow weather, traffic link, quick tiles', async ({ page }) => {
+test('Home: 4 city clocks, USDT/RUB, BTC, weather and traffic where you are, quick tiles', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('focus.geo', JSON.stringify({ lat: -8.65, lon: 115.22, t: Date.now() })));
   await open(page);
   await expect(page.locator('.clock .city')).toHaveText(['Los Angeles', 'New York', 'Moscow', 'Bali']);
   await expect(page.locator('.clock .ctime').first()).toHaveText(/^\d\d:\d\d$/);
   await expect(page.locator('#wUsdt')).toHaveText('95.40 ₽');
   await expect(page.locator('#wBtc')).toHaveText('$97,120');
   await expect(page.locator('#wTemp')).toHaveText('-3°');
-  await expect(page.locator('a.widget[href*="yandex.ru/maps"]')).toHaveCount(1);
+  await expect(page.locator('#wTemp').locator('xpath=..')).toContainText('Here');
+  await expect(page.locator('a.widget[href*="google.com/maps/@-8.6500,115.2200"]')).toHaveCount(1);
   await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Follow-up', 'Delegated', 'Someday', 'Done', 'Paused']);
   await expect(page.locator('#screen')).not.toContainText('Waiting on others');
   await press(page, page.locator('.tile', { hasText: 'Most important' }));
@@ -530,6 +530,7 @@ test('Money: Earned/Spent this month and My balance with negatives, currency swi
   await press(page, page.locator('[data-act=newAccount]'));
   await page.locator('#sheet input[name=name]').fill('Car');
   await page.locator('#sheet select[name=category]').selectOption('asset');
+  await page.locator('#sheet input[name=amount]').fill('18000');
   await press(page, page.locator('#sheet button[type=submit]'));
   await expect(page.locator('table.bal')).toContainText('Car');
   expect(liquid).toMatch(/^\$/);
@@ -704,17 +705,17 @@ test('Assistant: one message creates a task with date/time/priority, an expense 
   expect((await stored(page)).tasks.find((x) => x.title === 'Позвонить в банк').done).toBe(true);
 });
 
-test('New tasks default to Inbox even from Today; title and description come first', async ({ page }) => {
+test('A task added from Today lands in Today; title and description come first', async ({ page }) => {
   await open(page, '#/today');
   await press(page, page.locator('[data-act=newTask]'));
   await expect(page.locator('#sheet .field > span').nth(0)).toHaveText('Task title');
   await expect(page.locator('#sheet .field > span').nth(1)).toHaveText('Description');
-  await expect(page.locator('#sheet select[name=list]')).toHaveValue('inbox');
-  await page.locator('#sheet input[name=title]').fill('Today but unprocessed');
+  await expect(page.locator('#sheet select[name=list]')).toHaveValue('anytime');
+  await page.locator('#sheet input[name=title]').fill('Planned from Today');
   await press(page, page.locator('#sheet button[type=submit]'));
-  await expect(page.locator('#screen .task-title', { hasText: 'Today but unprocessed' })).toHaveCount(1);
-  await viaMenu(page, 'Inbox');
-  await expect(page.locator('#screen .task-title', { hasText: 'Today but unprocessed' })).toHaveCount(1);
+  await expect(page.locator('#screen .task-title', { hasText: 'Planned from Today' })).toHaveCount(1);
+  const t = (await stored(page)).tasks.find((x) => x.title === 'Planned from Today');
+  expect(t.date).toBe(await page.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }));
 });
 
 test('Paused status keeps a task out of Today and lists it under Paused', async ({ page }) => {
@@ -825,4 +826,281 @@ test('Safe: Document and Bank card show only relevant fields; document photos ar
   await page.locator('#sheet input[name=cardExp]').fill('08/29');
   await press(page, page.locator('#sheet button[type=submit]'));
   await expect(page.locator('[data-safe]', { hasText: 'Visa' })).toContainText('•••• 4417');
+});
+
+/* ===================== v1.6 ===================== */
+const ymdToday = (page) => page.evaluate(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
+
+test('Quick add: one line + Return adds to the current section and keeps the line open', async ({ page }) => {
+  await open(page, '#/someday');
+  const input = page.locator('#screen .quick-add .qa-in');
+  await expect(input).toHaveAttribute('placeholder', 'Add to Someday');
+  await input.fill('Learn to surf');
+  await input.press('Enter');
+  await expect(page.locator('#toast')).toContainText('Added to Someday');
+  await expect(page.locator('#screen .quick-add .qa-in')).toBeFocused();
+  await page.locator('#screen .quick-add .qa-in').fill('Visit Iceland');
+  await press(page, page.locator('#screen .quick-add .qa-add'));
+  const titles = await page.locator('#screen .task-title').allTextContents();
+  expect(titles.slice(-2)).toEqual(['Learn to surf', 'Visit Iceland']);
+  const d = await stored(page);
+  expect(d.tasks.find((x) => x.title === 'Learn to surf').list).toBe('someday');
+  await press(page, page.locator('#toastBtn'));
+  await expect(page.locator('#screen .task-title', { hasText: 'Visit Iceland' })).toHaveCount(0);
+});
+
+test('Quick add follows the screen: Today, Most important, Follow-up, a project', async ({ page }) => {
+  await open(page, '#/today');
+  await page.locator('#screen .quick-add .qa-in').fill('Today item');
+  await page.locator('#screen .quick-add .qa-in').press('Enter');
+  await viaMenu(page, 'Most important');
+  await page.locator('#screen .quick-add .qa-in').fill('Urgent item');
+  await page.locator('#screen .quick-add .qa-in').press('Enter');
+  await viaMenu(page, 'Follow-up');
+  await page.locator('#screen .quick-add .qa-in').fill('Waiting item');
+  await page.locator('#screen .quick-add .qa-in').press('Enter');
+  await expect(page.locator('#screen .task-title', { hasText: 'Waiting item' })).toHaveCount(1);
+  await viaMenu(page, 'Projects');
+  await press(page, page.locator('.item-card', { hasText: 'Home renovation' }));
+  await page.locator('#screen .quick-add .qa-in').fill('Project item');
+  await page.locator('#screen .quick-add .qa-in').press('Enter');
+  await expect(page.locator('#screen .task-title', { hasText: 'Project item' })).toHaveCount(1);
+  const d = await stored(page), t = await ymdToday(page);
+  const by = (n) => d.tasks.find((x) => x.title === n);
+  expect(by('Today item').date).toBe(t);
+  expect(by('Urgent item').priority).toBe('urgent');
+  expect(by('Waiting item').status).toBe('waiting');
+  expect(by('Project item').project).toBe('p_home');
+});
+
+test('+ opens on the current section: a project gets the task, Notes gets a note', async ({ page }) => {
+  await open(page, '#/project/p_home');
+  await press(page, page.locator('.add-btn'));
+  await expect(page.locator('#sheetTitle')).toHaveText('Add to Home renovation');
+  await page.locator('#qsTitle').fill('Order tiles');
+  await page.locator('#qsTitle').press('Enter');
+  await expect(page.locator('#qsTitle')).toHaveValue('');
+  await expect(page.locator('#qsTitle')).toBeFocused();
+  await page.locator('#qsTitle').fill('Call plumber');
+  await press(page, page.locator('#sheet form button[type=submit]'));
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await expect(page.locator('#screen .task-title', { hasText: 'Order tiles' })).toHaveCount(1);
+  await expect(page.locator('#screen .task-title', { hasText: 'Call plumber' })).toHaveCount(1);
+  await viaMenu(page, 'Notes');
+  await press(page, page.locator('.add-btn'));
+  await expect(page.locator('#sheetTitle')).toHaveText('Add to Notes');
+  await page.locator('#qsTitle').fill('Gift ideas');
+  await page.locator('#qsTitle').press('Enter');
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await expect(page.locator('#screen .item-card', { hasText: 'Gift ideas' })).toHaveCount(1);
+});
+
+test('Deadlines: add with a date, see it in the menu and on Home; Hard deadline in the task form', async ({ page }) => {
+  await open(page, '#/deadlines');
+  const t = await ymdToday(page);
+  const soon = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 3); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
+  await page.locator('#screen .quick-add .qa-in').fill('File taxes');
+  await page.locator('#screen .quick-add .qa-in').press('Enter');
+  await expect(page.locator('#toast')).toContainText('Pick the deadline date');
+  await page.locator('#screen .quick-add .qa-date').fill(soon);
+  await press(page, page.locator('#screen .quick-add .qa-add'));
+  await expect(page.locator('#screen .task', { hasText: 'File taxes' })).toContainText('in 3 days');
+  await press(page, page.locator('#screen .task-body', { hasText: 'File taxes' }));
+  await expect(page.locator('#sheet input[name=deadline]')).toBeChecked();
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await press(page, page.locator('#menuBtn'));
+  await expect(page.locator('#drawer .nav-link[data-go=deadlines] .nl')).toHaveAttribute('data-sub', 'Next in 3 days');
+  await press(page, page.locator('#drawer .nav-link[data-go=home]'));
+  await expect(page.locator('#screen .task', { hasText: 'File taxes' })).toHaveCount(1);
+  await viaMenu(page, 'Inbox');
+  await press(page, page.locator('[data-act=newTask]').first());
+  await page.locator('#sheet input[name=title]').fill('Renew passport');
+  await page.locator('#sheet input[name=deadline]').check();
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#taskErr')).toHaveText('A deadline needs a date.');
+  await page.locator('#sheet input[name=date]').fill(t);
+  await press(page, page.locator('#sheet button[type=submit]'));
+  expect((await stored(page)).tasks.find((x) => x.title === 'Renew passport').deadline).toBe(true);
+});
+
+test('Menu: grouped and collapsible, areas with their projects, Inbox count on the bottom bar', async ({ page }) => {
+  await open(page);
+  await expect(page.locator('#tabInboxN')).toBeVisible();
+  await press(page, page.locator('#menuBtn'));
+  await expect(page.locator('#drawer .group-btn')).toHaveText(['Tasks', 'Views', 'Areas & projects', 'Life', 'Knowledge', 'Vault', 'Money', 'App']);
+  await expect(page.locator('#drawer .nav-proj.child', { hasText: 'Home renovation' })).toHaveCount(1);
+  await press(page, page.locator('#drawer .group-btn', { hasText: 'Life' }));
+  await expect(page.locator('#drawer .nav-link[data-go=habits]')).toHaveCount(0);
+  await page.reload();
+  await page.waitForSelector('html[data-ready="1"]');
+  await press(page, page.locator('#menuBtn'));
+  await expect(page.locator('#drawer .group-btn', { hasText: 'Life' })).toHaveAttribute('aria-expanded', 'false');
+  await press(page, page.locator('#drawer .nav-proj.child', { hasText: 'Home renovation' }));
+  await expect(h1(page)).toHaveText('Home renovation');
+  await press(page, page.locator('.tab[data-go=inbox]'));
+  await expect(h1(page)).toHaveText('Inbox');
+});
+
+test('Home: focus first, priorities, habits and How was today at the bottom; money hidden until Show', async ({ page }) => {
+  await open(page);
+  const order = await page.evaluate(() => Array.from(document.querySelectorAll('#screen .focus-card h2, #screen .section h2')).map((h) => h.firstChild.textContent));
+  expect(order[0]).toBe('Today’s focus');
+  expect(order.slice(-3)).toEqual(['My priorities', 'Habits today', 'How was today?']);
+  await expect(page.locator('.money-card .masked').first()).toHaveText('•••••');
+  await press(page, page.locator('[data-act=toggleMoney]'));
+  await expect(page.locator('.money-card .masked')).toHaveCount(0);
+  await press(page, page.locator('#screen .mood', { hasText: 'Good' }));
+  await expect(page.locator('#screen .mood', { hasText: 'Good' })).toHaveAttribute('aria-checked', 'true');
+  await press(page, page.locator('#toastBtn'));
+  await page.locator('#jText').fill('Shipped the new menu');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#screen .j-note')).toHaveText('Shipped the new menu');
+  await viaMenu(page, 'Journal');
+  await expect(page.locator('#screen .mood[aria-checked=true]')).toHaveText('Good');
+});
+
+/* ===================== v1.6.1 ===================== */
+test('Money: add an account with balance and date in one step; monthly entry with debts typed without a minus', async ({ page }) => {
+  await page.goto('index.html');
+  await mockApis(page);
+  await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('.money-card [data-act=newAccount]')).toBeVisible();
+  await viaMenu(page, 'Money');
+  await press(page, page.locator('[data-act=moneyTab][data-v=balance]'));
+  await press(page, page.locator('[data-act=newAccount]'));
+  await page.locator('#sheet input[name=name]').fill('BCA Bali');
+  await page.locator('#sheet input[name=amount]').fill('12 500');
+  await page.locator('#sheet input[name=date]').fill('2026-10-01');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('[data-sum=bank]')).toHaveText('$12,500');
+  await expect(page.locator('.bal-due')).toContainText('aren’t recorded yet');
+  await press(page, page.locator('.bal-due [data-act=recordBalances]'));
+  const date = await ymdToday(page);
+  await expect(page.locator('#sheet input[name=date]')).toHaveValue(date);
+  await expect(page.locator('#sheet .bal-field input')).toHaveValue('12 500');
+  await page.locator('#sheet .bal-field input').fill('13000');
+  await page.locator('#sheet input[name=new_name]').fill('Credit card');
+  await page.locator('#sheet select[name=new_cat]').selectOption('mydebt');
+  await page.locator('#sheet input[name=new_amount]').fill('2000');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('[data-sum=mydebt]')).toHaveText('−$2,000');
+  await expect(page.locator('[data-sum=net]')).toHaveText('$11,000');
+  await expect(page.locator('.bal-due')).toHaveCount(0);
+  await expect(page.locator('#screen .rec')).toHaveCount(2);
+  await press(page, page.locator('[data-act=recordBalances]').first());
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await page.reload();
+  await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('[data-sum=net]')).toHaveText('$11,000');
+});
+
+/* ===================== v1.6.2 ===================== */
+test('Money: Credit cards count as money owed; tap an account to add, edit and delete its entries', async ({ page }) => {
+  await open(page, '#/finance');
+  await press(page, page.locator('[data-act=moneyTab][data-v=balance]'));
+  const netBefore = await page.locator('[data-sum=net]').textContent();
+  await press(page, page.locator('[data-act=newAccount]'));
+  await page.locator('#sheet input[name=name]').fill('Visa Platinum');
+  await page.locator('#sheet select[name=category]').selectOption('card');
+  await page.locator('#sheet input[name=amount]').fill('1500');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('[data-sum=card]')).toHaveText('−$1,500');
+  expect(await page.locator('[data-sum=net]').textContent()).not.toBe(netBefore);
+  await expect(page.locator('table.bal tr.grp', { hasText: 'Credit cards' })).toHaveCount(1);
+  await press(page, page.locator('table.bal tr.acc-row', { hasText: 'Visa Platinum' }).locator('td').last());
+  await expect(page.locator('#sheetTitle')).toHaveText('Visa Platinum');
+  await expect(page.locator('#accNow')).toHaveText('−$1,500');
+  await page.locator('#sheet form[data-form=accEntry] input[name=amount]').fill('900');
+  await page.locator('#sheet form[data-form=accEntry] input[name=date]').fill('2026-01-15');
+  await press(page, page.locator('#sheet form[data-form=accEntry] button[type=submit]'));
+  await expect(page.locator('#sheet .entry-row')).toHaveCount(2);
+  await press(page, page.locator('#sheet .entry-row', { hasText: 'Jan 15' }).first());
+  await expect(page.locator('#sheet form[data-form=accEntry] input[name=amount]')).toHaveValue('900');
+  await page.locator('#sheet form[data-form=accEntry] input[name=amount]').fill('950');
+  await press(page, page.locator('#sheet form[data-form=accEntry] button[type=submit]'));
+  let d = await stored(page);
+  const acc = d.accounts.find((x) => x.name === 'Visa Platinum');
+  expect(d.balances.filter((b) => b.account === acc.id).map((b) => b.amount).sort()).toEqual([-1500, -950]);
+  await press(page, page.locator('#sheet .entry-row', { hasText: 'Jan 15' }).first());
+  await press(page, page.locator('#sheet [data-act=deleteEntry]'));
+  await expect(page.locator('#sheet .entry-row')).toHaveCount(1);
+  d = await stored(page);
+  expect(d.balances.filter((b) => b.account === acc.id).length).toBe(1);
+});
+
+/* ===================== v1.6.3 ===================== */
+test('Money: balance required on create, amounts show thousands and currency, accounts move up and down everywhere', async ({ page }) => {
+  await open(page, '#/finance');
+  await press(page, page.locator('[data-act=moneyTab][data-v=balance]'));
+  await press(page, page.locator('[data-act=newAccount]'));
+  await expect(page.locator('#sheet .field > span').nth(1)).toHaveText('Current balance');
+  await page.locator('#sheet input[name=name]').fill('BCA Bali');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await expect(page.locator('#accErr')).toContainText('Enter the current balance');
+  await page.locator('#sheet input[name=amount]').fill('1234567.5');
+  await expect(page.locator('#sheet input[name=amount]')).toHaveValue('1 234 567.5');
+  await expect(page.locator('#sheet [data-cur-sym]')).toHaveText('$');
+  await page.locator('#sheet select[name=currency]').selectOption('IDR');
+  await expect(page.locator('#sheet [data-cur-sym]')).toHaveText('Rp');
+  await page.locator('#sheet select[name=currency]').selectOption('USD');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  let d = await stored(page);
+  const bca = d.accounts.find((a) => a.name === 'BCA Bali');
+  expect(d.balances.find((b) => b.account === bca.id).amount).toBe(1234567.5);
+  const banks = async () => page.evaluate(() => {
+    const out = []; let inBanks = false;
+    document.querySelectorAll('table.bal tbody tr').forEach((tr) => { if (tr.classList.contains('grp')) inBanks = tr.textContent === 'Banks'; else if (inBanks) out.push(tr.querySelector('.cell-btn').textContent); });
+    return out;
+  });
+  expect(await banks()).toEqual(['Main bank (USD)', 'Bank (RUB)', 'BCA Bali']);
+  await press(page, page.locator('[data-act=accReorder]'));
+  await press(page, page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]'));
+  await press(page, page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]'));
+  expect(await banks()).toEqual(['BCA Bali', 'Main bank (USD)', 'Bank (RUB)']);
+  await expect(page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]')).toBeDisabled();
+  await press(page, page.locator('[data-act=accReorder]'));
+  await press(page, page.locator('[data-act=recordBalances]').first());
+  const recBanks = await page.evaluate(() => {
+    const out = []; let on = false;
+    document.querySelectorAll('#sheet .bal-grp, #sheet .bal-field').forEach((el) => { if (el.classList.contains('bal-grp')) on = el.textContent === 'Banks'; else if (on) out.push(el.querySelector('.bf-name').firstChild.textContent); });
+    return out;
+  });
+  expect(recBanks).toEqual(['BCA Bali', 'Main bank (USD)', 'Bank (RUB)']);
+  await expect(page.locator('#sheet input[name="acc_' + bca.id + '"]')).toHaveValue('1 234 567.5');
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await press(page, page.locator('table.bal tr.acc-row', { hasText: 'Bank (RUB)' }).locator('td').first());
+  await press(page, page.locator('#sheet .acc-move [data-d="-1"]'));
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  expect(await banks()).toEqual(['BCA Bali', 'Bank (RUB)', 'Main bank (USD)']);
+  await page.reload();
+  await page.waitForSelector('html[data-ready="1"]');
+  expect(await banks()).toEqual(['BCA Bali', 'Bank (RUB)', 'Main bank (USD)']);
+});
+
+/* ===================== v1.6.4 ===================== */
+test('Money: saldo = cash+banks+crypto+stocks + debts to me − my debts and cards; net worth = saldo + assets; old positive debts are deducted', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (localStorage.getItem('focus.data.v1')) return;
+    const d = { v: 1, tasks: [], projects: [], notes: [], finance: [], purchases: [],
+      accounts: [
+        { id: 'c1', name: 'Cash', category: 'cash', currency: 'USD' }, { id: 'b1', name: 'BCA', category: 'bank', currency: 'USD' },
+        { id: 's1', name: 'Broker', category: 'stocks', currency: 'USD' }, { id: 't1', name: 'Loan to Ivan', category: 'theirdebt', currency: 'USD' },
+        { id: 'm1', name: 'Mortgage', category: 'mydebt', currency: 'USD' }, { id: 'k1', name: 'Visa', category: 'card', currency: 'USD' },
+        { id: 'h1', name: 'Villa', category: 'asset', currency: 'USD' }],
+      balances: [['c1', 1000], ['b1', 20000], ['s1', 5000], ['t1', 2000], ['m1', 10000], ['k1', 1500], ['h1', 300000]].map(([a, v], i) => ({ id: 'x' + i, account: a, date: '2026-11-01', amount: v })),
+      settings: { demoPurged: true } };
+    localStorage.setItem('focus.data.v1', JSON.stringify(d));
+  });
+  await mockApis(page);
+  await page.goto('index.html#/finance');
+  await page.waitForSelector('html[data-ready="1"]');
+  await press(page, page.locator('[data-act=moneyTab][data-v=balance]'));
+  await expect(page.locator('#balSummary .sum-row:not(.sub) > span:first-child')).toHaveText(['Cash + banks + crypto + stocks', '+ Debts to me', '− My debts and credit cards', 'Total saldo', '+ Assets value', 'Net worth']);
+  await expect(page.locator('[data-sum=liquid]')).toHaveText('$26,000');
+  await expect(page.locator('[data-sum=theirdebt]')).toHaveText('$2,000');
+  await expect(page.locator('[data-sum=debts]')).toHaveText('−$11,500');
+  await expect(page.locator('[data-sum=saldo]')).toHaveText('$16,500');
+  await expect(page.locator('[data-sum=net]')).toHaveText('$316,500');
+  const d = await stored(page);
+  expect(d.balances.find((b) => b.account === 'm1').amount).toBe(-10000);
 });
