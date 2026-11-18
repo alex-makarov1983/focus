@@ -3791,6 +3791,941 @@
   };
   function showLockEarly() { if (AppLock.on()) showLock(); }
 
+  /* ================= v1.6: grouped menu, new Home, add where you are, Deadlines, Journal ================= */
+  APP_VERSION = '1.6.0';
+
+  /* ---------- icons ---------- */
+  ICON.deadline = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 21V4"/><path d="M5.5 4.5h11l-2.2 4 2.2 4h-11"/></svg>';
+  ICON.journal = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h10.5a3 3 0 0 1 3 3v12.5H8a3 3 0 0 1-3-3z"/><path d="M9 9h6M9 12.5h4"/></svg>';
+  ICON.dots = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="18.5" cy="12" r="1.8"/></svg>';
+  ICON.chev = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+  ICON.pin = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg>';
+  ICON.eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>';
+  ICON.folder = ICON.projects;
+  ICON.ring = function (pct) {
+    var a = Math.max(0, Math.min(0.999, pct)) * 2 * Math.PI, x = 12 + 6 * Math.sin(a), y = 12 - 6 * Math.cos(a);
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>' +
+      (pct > 0 ? '<path d="M12 12V6A6 6 0 ' + (a > Math.PI ? 1 : 0) + ' 1 ' + x.toFixed(2) + ' ' + y.toFixed(2) + 'z" fill="currentColor"/>' : '') + '</svg>';
+  };
+  var MOUTHS = { 1: 'M8 16.8c1.5-2.4 6.5-2.4 8 0', 2: 'M9 15.8c1-1 5-1 6 0', 3: 'M9 15.3h6', 4: 'M9 14.5c1 1.4 5 1.4 6 0', 5: 'M8 13.8c1.5 3 6.5 3 8 0' };
+  function moodFace(m) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 10h.01M15 10h.01M' + MOUTHS[m].slice(1) + '"/></svg>'; }
+  var MOODS = [[1, 'Awful'], [2, 'Bad'], [3, 'Okay'], [4, 'Good'], [5, 'Great']];
+
+  Object.assign(ROUTES, {
+    deadlines: { title: 'Deadlines', icon: 'deadline' },
+    journal: { title: 'Journal', icon: 'journal' }
+  });
+
+  var _normalize6 = normalize;
+  normalize = function (d) {
+    d = _normalize6(d);
+    if (!Array.isArray(d.journal)) d.journal = [];
+    return d;
+  };
+
+  /* ---------- Deadlines ---------- */
+  sel.deadlines = function () {
+    return db.tasks.filter(function (t) { return isOpen(t) && t.deadline && t.date; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.order - b.order; });
+  };
+  function daysTo(d) { return Math.round((utcDay(d) - utcDay(today())) / 86400000); }
+  function inDays(n) { return n === 0 ? 'due today' : n === 1 ? 'due tomorrow' : n < 0 ? (-n === 1 ? '1 day overdue' : -n + ' days overdue') : 'in ' + n + ' days'; }
+  var _taskMeta6 = taskMeta;
+  taskMeta = function (t, opts) {
+    var h = _taskMeta6(t, opts);
+    if (!t.deadline || !t.date || t.done) return h;
+    var n = daysTo(t.date);
+    return h.replace(/<\/span>$/, '<span class="chip deadline' + (n < 0 ? ' overdue' : n <= 3 ? ' soon' : '') + '">' + ICON.deadline + esc(inDays(n)) + '</span></span>');
+  };
+  screens.deadlines = function () {
+    var all = sel.deadlines(), t = today(), wk = addDays(t, 7);
+    var html = head('Deadlines', 'Tasks with a hard due date, nearest first.');
+    function grp(name, xs) { return xs.length ? section(name, xs.length) + '<div class="list">' + xs.map(function (x) { return taskRow(x, { sortable: false }); }).join('') + '</div>' : ''; }
+    if (!all.length) html += '<div class="empty">No deadlines yet. Add one below, or tick “Hard deadline” on any task.</div>';
+    html += grp('Overdue', all.filter(function (x) { return x.date < t; })) +
+      grp('Next 7 days', all.filter(function (x) { return x.date >= t && x.date <= wk; })) +
+      grp('Later', all.filter(function (x) { return x.date > wk; }));
+    return html + addTaskBtn({});
+  };
+
+  var _followup6 = screens.followup, _paused6 = screens.paused;
+  screens.followup = function () { return _followup6() + addTaskBtn({}); };
+  screens.paused = function () { return _paused6() + addTaskBtn({}); };
+
+  /* ---------- where a new entry goes: the screen you are on ---------- */
+  function addCtx() {
+    var r = ui.route, t = today();
+    switch (r.name) {
+      case 'today': return { list: 'anytime', date: t, where: 'Today' };
+      case 'urgent': return { list: 'anytime', priority: 'urgent', where: 'Most important' };
+      case 'upcoming': return { list: 'anytime', date: addDays(t, 1), where: 'Upcoming' };
+      case 'deadlines': return { list: 'anytime', deadline: true, where: 'Deadlines' };
+      case 'anytime': return { list: 'anytime', where: 'Anytime' };
+      case 'someday': return { list: 'someday', where: 'Someday' };
+      case 'followup': return { list: 'anytime', status: 'waiting', where: 'Follow-up' };
+      case 'paused': return { list: 'anytime', status: 'paused', where: 'Paused' };
+      case 'delegated': return { list: 'anytime', delegatedTo: db.settings.assistants[0] || 'Assistant', where: 'Delegated' };
+      case 'calendar': return { list: 'anytime', date: ui.calDate || t, where: fmtDate(ui.calDate || t, { full: true }) };
+      case 'project': {
+        var p = project(r.id);
+        return p ? { list: 'anytime', project: p.id, area: p.area, where: p.name } : { list: 'inbox', where: 'Inbox' };
+      }
+      case 'area': return { list: 'anytime', area: r.id, where: label(areasList(), r.id) || 'Area' };
+      default: return { list: 'inbox', where: 'Inbox' };
+    }
+  }
+  function maxOrder() { var m = 0; db.tasks.concat(db.headings || []).forEach(function (t) { if (t.order > m) m = t.order; }); return m; }
+  function quickCreate(title, c) {
+    var t = {
+      id: uid(), title: title, notes: '', list: c.list || 'inbox', date: c.date || '', time: '', priority: c.priority || 'medium',
+      status: 'todo', area: c.area || '', project: c.project || '', repeat: '', subtasks: [], done: false, completedAt: '',
+      order: maxOrder() + 1, createdAt: Date.now(), photos: [], delegatedTo: c.delegatedTo || '', deadline: !!c.deadline
+    };
+    var p = t.project && project(t.project); if (p) t.area = p.area;
+    db.tasks.push(t);
+    if (c.status && c.status !== 'todo') setTaskStatus(t, c.status);
+    save();
+    return t;
+  }
+  function undoAdd(id, kind) {
+    return function () {
+      var arr = kind === 'note' ? db.notes : db.tasks, x = byId(arr, id);
+      if (x) { arr.splice(arr.indexOf(x), 1); save(); render(); }
+    };
+  }
+
+  /* ---------- one-line quick add at the bottom of every task list ---------- */
+  function quickAddHtml(ctx, slot) {
+    var c = Object.assign(addCtx(), ctx || {});
+    if (ctx && ctx.date && ui.route.name === 'calendar') c.where = fmtDate(ctx.date, { full: true });
+    if (c.delegatedTo && ui.route.name === 'delegated') c.where = c.delegatedTo;
+    var ph = c.delegatedTo && ui.route.name === 'delegated' ? 'Delegate to ' + c.delegatedTo : 'Add to ' + c.where;
+    var json = esc(JSON.stringify(c));
+    return '<form class="quick-add" data-form="quickTask" data-slot="' + esc(slot || 'list') + '" data-ctx="' + json + '" novalidate>' +
+      '<span class="qa-dot" aria-hidden="true"></span>' +
+      '<input name="title" class="qa-in" placeholder="' + esc(ph) + '" aria-label="' + esc(ph) + '" autocomplete="off" autocapitalize="sentences" enterkeyhint="send" maxlength="300">' +
+      (c.deadline ? '<input type="date" name="date" class="qa-date" aria-label="Deadline date">' : '') +
+      '<button type="button" class="qa-more" data-act="newTask" data-ctx="' + json + '" aria-label="Add with details">' + ICON.dots + '</button>' +
+      '<button type="submit" class="qa-add">Add</button></form>';
+  }
+  addTaskBtn = function (ctx) { return quickAddHtml(ctx); };
+  submitters.quickTask = function (form) {
+    var c = ctxOf(form), title = val(form, 'title'), inp = form.elements.title;
+    if (!title) { inp.focus(); return; }
+    if (c.deadline) {
+      var d = val(form, 'date');
+      if (!d) { toast('Pick the deadline date'); form.elements.date.focus(); return; }
+      c.date = d;
+    }
+    var t = quickCreate(title, c), slot = form.dataset.slot;
+    render();
+    var next = $('#screen .quick-add[data-slot="' + slot + '"] .qa-in');
+    if (next) { try { next.focus({ preventScroll: true }); } catch (e) { next.focus(); } }
+    toast('Added to ' + c.where, 'Undo', undoAdd(t.id, 'task'));
+  };
+  actions.newTask = function (el) {
+    var c = Object.assign(addCtx(), ctxOf(el));
+    var f = el.closest && el.closest('.quick-add');
+    if (f) { c.title = f.elements.title.value.trim(); if (f.elements.date && f.elements.date.value) c.date = f.elements.date.value; }
+    taskForm(null, c);
+  };
+
+  /* ---------- full task form: opens on the current section, with a Hard deadline switch ---------- */
+  var _taskForm6 = taskForm;
+  taskForm = function (t, ctx) {
+    ctx = ctx || {};
+    _taskForm6(t, ctx);
+    var form = $('#sheet form[data-form=task]'); if (!form) return;
+    var E = form.elements, on = t ? !!t.deadline : !!ctx.deadline;
+    var dateBtns = form.querySelector('[data-act=formDate]');
+    var anchor = dateBtns ? dateBtns.parentNode : E.date.closest('.fields2');
+    anchor.insertAdjacentHTML('afterend', '<label class="check-row"><input type="checkbox" name="deadline"' + (on ? ' checked' : '') + '><span>Hard deadline<span class="muted small"> · listed under Deadlines</span></span></label>');
+    if (t) return;
+    if (ctx.list) E.list.value = ctx.list;
+    if (ctx.priority) E.priority.value = ctx.priority;
+    if (ctx.status) E.status.value = ctx.status;
+    if (ctx.date) E.date.value = ctx.date;
+    if (ctx.title) E.title.value = ctx.title;
+    if (ctx.delegatedTo && E.delegatedTo) E.delegatedTo.value = ctx.delegatedTo;
+    $all('p.hint', form).forEach(function (p) { if (/New tasks go to Inbox/.test(p.textContent)) p.textContent = 'Saves to ' + (ctx.where || 'Inbox') + '. You can change the list below.'; });
+  };
+  var _submitTask6 = submitters.task;
+  submitters.task = function (form) {
+    var box = form.elements.deadline, dl = !!(box && box.checked);
+    if (dl && !val(form, 'date')) { $('#taskErr').textContent = 'A deadline needs a date.'; form.elements.date.focus(); return; }
+    _submitTask6(form);
+    var t = task(form.dataset.id || form.dataset.preId);
+    if (t && !!t.deadline !== dl) { t.deadline = dl; save(); render(); }
+  };
+
+  /* ---------- + button: adds to the screen you are on ---------- */
+  var DIRECT_ADD = {
+    safe: function () { safeAdd(); },
+    finance: function () { financeForm(null, 'expense'); },
+    purchases: function () { purchaseForm(null); },
+    bookmarks: function () { bookmarkForm(null); },
+    media: function () { mediaForm(null); },
+    habits: function () { habitForm(null); },
+    friends: function () { friendForm(null); },
+    travel: function () { tripForm(null); },
+    journal: function () { journalForm(today()); }
+  };
+  function quickSheet(kind, keep) {
+    var c = addCtx(), isNote = kind === 'note', where = isNote ? 'Notes' : c.where;
+    var others = [['task', 'Task', ICON.task], ['assistant', 'Assistant', ICON.spark], ['note', 'Note', ICON.note], ['safe', 'Safe', ICON.lock], ['income', 'Income', ICON.income], ['expense', 'Expense', ICON.expense], ['balance', 'Balance', ICON.finance], ['bookmark', 'Bookmark', ICON.bookmarks]];
+    openSheet('Add to ' + where,
+      '<form data-form="quickSheet" data-kind="' + kind + '" data-ctx="' + esc(JSON.stringify(c)) + '" novalidate>' +
+      '<div class="qs-types" role="group" aria-label="Type">' + [['task', 'Task'], ['note', 'Note']].map(function (k) {
+        return '<button type="button" data-act="qsKind" data-k="' + k[0] + '" aria-pressed="' + (k[0] === kind) + '">' + k[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="qs-row"><input class="input" name="title" id="qsTitle" placeholder="' + (isNote ? 'Note title' : 'Task title') + '" value="' + esc(keep || '') + '" autocomplete="off" autocapitalize="sentences" enterkeyhint="send" maxlength="300" autofocus>' +
+      '<button type="button" class="mic-inline" data-act="dictate" data-target="#qsTitle" aria-label="Dictate">' + ICON.mic + '</button></div>' +
+      (!isNote && c.deadline ? '<label class="field"><span>Deadline date</span><input type="date" name="date"></label>' : '') +
+      '<p class="hint">' + (isNote ? 'Saves a note with this title.' : 'Saves to ' + esc(where) + '.') + ' Return adds it and keeps the line open for the next one.</p>' +
+      '<div class="btn-row" style="margin-top:10px"><button type="button" class="btn plain" data-act="qsDetails">Details</button><button type="submit" class="btn">Add</button></div>' +
+      '</form>' +
+      '<div class="qs-other"><span class="muted small">Something else</span><div class="chooser">' + others.map(function (x) {
+        return '<button type="button" class="choice" data-act="choose" data-kind="' + x[0] + '">' + x[2] + x[1] + '</button>';
+      }).join('') + '</div></div>');
+  }
+  actions.openAdd = function () {
+    closeMenu();
+    var r = ui.route.name;
+    if (DIRECT_ADD[r]) { DIRECT_ADD[r](); return; }
+    quickSheet(r === 'notes' || r === 'note' ? 'note' : 'task');
+  };
+  actions.qsKind = function (el) {
+    var cur = $('#qsTitle'); quickSheet(el.dataset.k, cur ? cur.value : '');
+  };
+  actions.qsDetails = function () {
+    var form = $('#sheet form[data-form=quickSheet]'); if (!form) return;
+    var title = val(form, 'title'), c = ctxOf(form);
+    if (form.dataset.kind === 'note') {
+      closeSheet(true); newNote({ project: c.project || '' });
+      var n = db.notes[db.notes.length - 1]; if (n && title) { n.title = title; save(); render(); }
+      return;
+    }
+    if (form.elements.date && form.elements.date.value) c.date = form.elements.date.value;
+    c.title = title; closeSheet(true); taskForm(null, c);
+  };
+  submitters.quickSheet = function (form) {
+    var title = val(form, 'title'), c = ctxOf(form), inp = form.elements.title;
+    if (!title) { inp.focus(); return; }
+    if (form.dataset.kind === 'note') {
+      var p = c.project && project(c.project);
+      var n = { id: uid(), title: title, body: '', area: p ? p.area : '', project: c.project || '', pinned: false, updatedAt: Date.now(), createdAt: Date.now(), photos: [], links: [] };
+      db.notes.push(n); save(); render();
+      inp.value = ''; inp.focus();
+      toast('Note added', 'Undo', undoAdd(n.id, 'note'));
+      return;
+    }
+    if (c.deadline) {
+      var d = val(form, 'date');
+      if (!d) { toast('Pick the deadline date'); form.elements.date.focus(); return; }
+      c.date = d;
+    }
+    var t = quickCreate(title, c);
+    render();
+    inp.value = ''; inp.focus();
+    toast('Added to ' + c.where, 'Undo', undoAdd(t.id, 'task'));
+  };
+  var _choose6 = actions.choose;
+  actions.choose = function (el) {
+    if (el.dataset.kind === 'task') { closeSheet(true); taskForm(null, addCtx()); return; }
+    _choose6(el);
+  };
+
+  /* ---------- Journal: how was the day ---------- */
+  function jEntry(d) { return byId(db.journal, 'j' + d); }
+  function moodPicker(d) {
+    var e = jEntry(d);
+    return '<div class="moods" role="radiogroup" aria-label="How was ' + esc(fmtDate(d)) + '">' + MOODS.map(function (m) {
+      return '<button class="mood" role="radio" aria-checked="' + !!(e && e.mood === m[0]) + '" data-act="setMood" data-date="' + d + '" data-m="' + m[0] + '">' + moodFace(m[0]) + '<span>' + m[1] + '</span></button>';
+    }).join('') + '</div>';
+  }
+  function journalSave(d, mood, text) {
+    var e = jEntry(d);
+    if (!e) { e = { id: 'j' + d, date: d, mood: 0, text: '' }; db.journal.push(e); }
+    if (mood != null) e.mood = mood;
+    if (text != null) e.text = text;
+    e.updatedAt = Date.now();
+    save();
+  }
+  actions.setMood = function (el) {
+    var d = el.dataset.date, m = +el.dataset.m;
+    journalSave(d, m, null); render();
+    var e = jEntry(d);
+    toast('Saved: ' + MOODS[m - 1][1].toLowerCase() + ' day', e.text ? '' : 'Add a note', e.text ? null : function () { journalForm(d); });
+  };
+  function journalForm(d) {
+    var e = jEntry(d) || { mood: 0, text: '' };
+    openSheet(fmtDate(d, { full: true, dow: true }),
+      '<form data-form="journal" data-date="' + d + '" novalidate><div class="moods">' + MOODS.map(function (m) {
+        return '<label class="mood"><input type="radio" class="sr-only" name="mood" value="' + m[0] + '"' + (e.mood === m[0] ? ' checked' : '') + '>' + moodFace(m[0]) + '<span>' + m[1] + '</span></label>';
+      }).join('') + '</div>' +
+      '<label class="field has-mic"><span>Notes about the day</span><textarea name="text" id="jText" rows="5" placeholder="What happened, what went well, what to change">' + esc(e.text) + '</textarea>' + micBtn('#jText') + '</label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button></div></form>');
+  }
+  submitters.journal = function (form) {
+    var r = form.querySelector('input[name=mood]:checked');
+    journalSave(form.dataset.date, r ? +r.value : null, form.elements.text.value.trim());
+    closeSheet(); render(); toast('Saved');
+  };
+  actions.editJournal = function (el) { journalForm(el.dataset.date || today()); };
+  screens.journal = function () {
+    var t = today(), e = jEntry(t);
+    var html = head('Journal', 'How each day went.');
+    html += section('Today') + '<div class="card pad">' + moodPicker(t) +
+      (e && e.text ? '<p class="j-note">' + esc(e.text) + '</p>' : '') +
+      '<button class="link-btn" data-act="editJournal" data-date="' + t + '">' + (e && e.text ? 'Edit note' : '+ Add a note') + '</button></div>';
+    var past = db.journal.filter(function (x) { return x.date !== t && (x.mood || x.text); }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    if (past.length) {
+      html += section('Earlier', past.length) + '<div class="list">' + past.map(function (x) {
+        return '<button class="j-item" data-act="editJournal" data-date="' + esc(x.date) + '"><span class="j-face m' + (x.mood || 0) + '">' + (x.mood ? moodFace(x.mood) : '') + '</span><span class="j-text"><b>' + esc(fmtDate(x.date, { full: true, dow: true })) + '</b><span class="muted small">' + esc(x.mood ? MOODS[x.mood - 1][1] : 'No rating') + (x.text ? ' · ' + esc(x.text.slice(0, 90)) : '') + '</span></span></button>';
+      }).join('') + '</div>';
+    }
+    return html;
+  };
+
+  /* ---------- weather, sun and traffic for where you are ---------- */
+  refreshWeather = function (force) {
+    var g = readCache('focus.geo'); if (!g) return Promise.reject(new Error('nogeo'));
+    var c = readCache('focus.weather');
+    if (!force && c && c.v === 2 && Date.now() - c.t < FRESH && Math.abs(c.lat - g.lat) < 0.2 && Math.abs(c.lon - g.lon) < 0.2) return Promise.resolve(c);
+    return fetchJson('https://api.open-meteo.com/v1/forecast?latitude=' + g.lat.toFixed(3) + '&longitude=' + g.lon.toFixed(3) + '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto').then(function (j) {
+      var w = { v: 2, t: Date.now(), lat: g.lat, lon: g.lon, temp: j.current.temperature_2m, feels: j.current.apparent_temperature, code: j.current.weather_code, wind: j.current.wind_speed_10m };
+      writeCache('focus.weather', w); return w;
+    });
+  };
+  function trafficUrl(g) {
+    var lat = g.lat.toFixed(4), lon = g.lon.toFixed(4);
+    if (g.lat > 41 && g.lat < 70 && g.lon > 19 && g.lon < 60) return 'https://yandex.ru/maps/?ll=' + lon + '%2C' + lat + '&z=12&l=trf';
+    return 'https://www.google.com/maps/@' + lat + ',' + lon + ',13z/data=!5m1!1e1';
+  }
+  function fmtTemp(v) { return (v > 0 ? '+' : '') + Math.round(v) + '°'; }
+  widgetsHtml = function () {
+    var W = db.settings.widgets, m = readCache('focus.market'), w = readCache('focus.weather'), s = readCache('focus.sun'), g = readCache('focus.geo'), out = '';
+    if (m && m.v !== 2) m = null;
+    if (w && w.v !== 2) w = null;
+    function tileW(lbl, id, v, sub) { return '<div class="widget"><span class="wl">' + lbl + '</span><span class="wv" id="' + id + '">' + v + '</span>' + sub + '</div>'; }
+    if (g) {
+      if (W.weather) out += tileW('Here', 'wTemp', w ? fmtTemp(w.temp) : '…', '<span class="wchg" id="wCond">' + (w ? esc(weatherText(w.code)) : '') + '</span>');
+      out += tileW('Sun', 'wSun', s ? '☀︎ ' + esc(s.rise) : '…', '<span class="wchg" id="wSet">' + (s ? '☾ ' + esc(s.set) : '') + '</span>');
+      if (W.traffic) out += '<a class="widget" href="' + esc(trafficUrl(g)) + '" target="_blank" rel="noopener noreferrer"><span class="wl">Traffic</span><span class="wv">Here ↗</span><span class="wchg">Live map</span></a>';
+    } else {
+      out += '<button class="widget geo-ask" data-act="enableGeo"><span class="wl">Weather · sun · traffic</span><span class="wv">' + ICON.pin + '</span><span class="wchg">Tap to use location</span></button>';
+    }
+    if (W.rates) {
+      out += tileW('USDT → RUB', 'wUsdt', m ? esc(m.usdtRub.toFixed(2)) + ' ₽' : '…', '<span id="wUsdtC">' + chg(m && m.rubChg) + '</span>');
+      out += tileW('USD → IDR', 'wIdr', m ? esc(Math.round(m.usdIdr).toLocaleString('en-US')) : '…', '<span id="wIdrC">' + chg(m && m.idrChg) + '</span>');
+      out += tileW('BTC → USD', 'wBtc', m ? esc(fmtMoney(Math.round(m.btcUsd), 'USD')) : '…', '<span id="wBtcC">' + chg(m && m.btcChg) + '</span>');
+    }
+    return out ? '<div class="widgets">' + out + '</div>' : '';
+  };
+  var _updateWidgets6 = updateWidgets;
+  updateWidgets = function () {
+    _updateWidgets6();
+    if (ui.route.name !== 'home') return;
+    if (db.settings.widgets.weather && readCache('focus.geo')) {
+      refreshWeather().then(function (w) {
+        var a = $('#wTemp'), b = $('#wCond');
+        if (a) a.textContent = fmtTemp(w.temp);
+        if (b) b.textContent = weatherText(w.code);
+      }).catch(function () { /* keep cached */ });
+    }
+    refreshGeoQuietly();
+  };
+  /* When you travel, follow you: refresh the saved position every few hours, but only if location is already allowed. */
+  var geoBusy = false;
+  function refreshGeoQuietly() {
+    var g = readCache('focus.geo');
+    if (geoBusy || !g || Date.now() - (g.t || 0) < 3 * 3600000 || !navigator.geolocation || !navigator.permissions) return;
+    geoBusy = true;
+    navigator.permissions.query({ name: 'geolocation' }).then(function (p) {
+      if (p.state !== 'granted') { geoBusy = false; return; }
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        geoBusy = false;
+        writeCache('focus.geo', { lat: pos.coords.latitude, lon: pos.coords.longitude, t: Date.now() });
+        Promise.all([refreshWeather(true).catch(function () {}), refreshSun(true).catch(function () {})]).then(function () { if (ui.route.name === 'home' && !sheetOpen()) render(); });
+      }, function () { geoBusy = false; }, { timeout: 10000, maximumAge: 1800000 });
+    }).catch(function () { geoBusy = false; });
+  }
+
+  /* ---------- Home ---------- */
+  Object.assign(ui, { moneyShown: false });
+  function focusCard() {
+    var all = sel.today(), top = all.slice(0, 3);
+    var html = '<section class="focus-card" aria-label="Today’s focus"><div class="fc-head"><h2>Today’s focus</h2><button class="fc-link" data-go="today">' + (all.length > 3 ? 'All ' + all.length : 'Today') + '</button></div>';
+    html += top.length ? top.map(function (t) {
+      return '<div class="fc-row"><button class="check p-' + esc(t.priority) + '" role="checkbox" aria-checked="false" data-act="toggleTask" data-id="' + esc(t.id) + '" aria-label="Complete ' + esc(t.title) + '"><span class="box">' + ICON.tick + '</span></button>' +
+        '<button class="fc-title" data-act="editTask" data-id="' + esc(t.id) + '">' + esc(t.title) + '</button></div>';
+    }).join('') : '<p class="fc-empty">Nothing planned for today yet.</p>';
+    if (top.length < 3) html += quickAddHtml({ list: 'anytime', date: today(), where: 'Today' }, 'focus');
+    else html += '<p class="fc-hint">The first three tasks in Today. Drag them in Today to change the order.</p>';
+    return html + '</section>';
+  }
+  function timeLeftHtml() {
+    var now = new Date(), DAY = 86400000;
+    var d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var w0 = new Date(d0); w0.setDate(w0.getDate() - (d0.getDay() + 6) % 7);
+    var m0 = new Date(now.getFullYear(), now.getMonth(), 1), m1 = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    var y0 = new Date(now.getFullYear(), 0, 1), y1 = new Date(now.getFullYear() + 1, 0, 1);
+    function row(name, start, end, txt, cls) {
+      var pct = Math.max(0, Math.min(100, (now - start) / (end - start) * 100));
+      return '<div class="tl-row' + (cls ? ' ' + cls : '') + '"><div class="tl-top"><b>' + esc(name) + '</b><span>' + esc(txt) + '</span></div><div class="tl-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div></div>';
+    }
+    var leftMin = Math.max(0, Math.round((d0.getTime() + DAY - now) / 60000));
+    var days = function (end) { var n = Math.ceil((end - now) / DAY); return n + (n === 1 ? ' day left' : ' days left'); };
+    var html = row('Day', d0, new Date(d0.getTime() + DAY), Math.floor(leftMin / 60) + ' h ' + (leftMin % 60) + ' m left') +
+      row('Week', w0, new Date(w0.getTime() + 7 * DAY), days(new Date(w0.getTime() + 7 * DAY))) +
+      row(MONTHS[now.getMonth()], m0, m1, days(m1)) +
+      row(String(now.getFullYear()), y0, y1, days(y1));
+    var b = db.settings.birthDate;
+    if (b) {
+      var bd = parseYmd(b), end = new Date(bd.getFullYear() + 80, bd.getMonth(), bd.getDate());
+      var wl = Math.max(0, Math.round((end - now) / (7 * DAY))), yl = Math.max(0, Math.floor((end - now) / (365.25 * DAY)));
+      html += row('80 years', bd, end, '≈ ' + yl + ' years · ' + wl.toLocaleString('en-US') + ' weeks', 'life');
+    } else {
+      html += '<div class="tl-row life"><div class="tl-top"><b>80 years</b><button class="link-btn" data-go="settings">Set your birth date</button></div></div>';
+    }
+    return section('Time left', null, '<button class="link-btn" data-go="life">Whole life</button>') + '<div class="card pad tl">' + html + '</div>';
+  }
+  function moneyCard() {
+    var es = earnedSpent(), cur = db.settings.currency, shown = ui.moneyShown, mask = '•••••';
+    var net = db.accounts.length && db.balances.length ? balanceTotals('', cur).net : null;
+    return section('Money', null, '<span class="row"><button class="link-btn eye-btn" data-act="toggleMoney" aria-pressed="' + shown + '">' + ICON.eye + (shown ? 'Hide' : 'Show') + '</button><button class="link-btn" data-go="finance">Open</button></span>') +
+      '<div class="card pad money-card">' +
+      (net != null ? '<div class="muted small">Net worth</div><div class="mc-net' + (shown ? '' : ' masked') + '">' + (shown ? esc(fmtMoney(Math.round(net), cur)) : mask) + '</div>' : '') +
+      '<div class="grid2"><div class="tile static"><div class="l">Earned this month</div><div class="n pos money' + (shown ? '' : ' masked') + '">' + (shown ? esc(fmtMoney(es.earned, cur)) : mask) + '</div></div>' +
+      '<div class="tile static"><div class="l">Spent this month</div><div class="n money' + (shown ? '' : ' masked') + '">' + (shown ? esc(fmtMoney(es.spent, cur)) : mask) + '</div></div></div></div>';
+  }
+  actions.toggleMoney = function () { ui.moneyShown = !ui.moneyShown; render(); };
+  function habitsHomeHtml(t) {
+    if (!db.habits.length) return '';
+    return section('Habits today', db.habits.filter(function (h) { return h.done[t]; }).length + '/' + db.habits.length, '<button class="link-btn" data-go="habits">All</button>') + '<div class="list">' + db.habits.map(function (h) {
+      var on = !!h.done[t];
+      return '<div class="task' + (on ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + on + '" data-act="toggleHabit" data-id="' + esc(h.id) + '" data-date="' + t + '" aria-label="' + esc(h.name) + ' today"><span class="box">' + ICON.tick + '</span></button><button class="task-body" data-go="habits"><span class="task-title">' + esc(h.name) + '</span></button></div>';
+    }).join('') + '</div>';
+  }
+  function dayCardHtml(t) {
+    var e = jEntry(t);
+    return section('How was today?', null, '<button class="link-btn" data-go="journal">Journal</button>') + '<div class="card pad">' + moodPicker(t) +
+      (e && e.text ? '<p class="j-note">' + esc(e.text) + '</p>' : '') +
+      '<button class="link-btn" data-act="editJournal" data-date="' + t + '">' + (e && e.text ? 'Edit note' : '+ Add a note') + '</button></div>';
+  }
+  screens.home = function () {
+    var t = today(), S = db.settings;
+    var html = head('Home');
+    if (S.widgets.clocks) html += '<div class="clocks" id="clocks">' + clocksHtml() + '</div>';
+    html += widgetsHtml();
+    html += '<button class="ai-bar" data-act="openAssistant">' + ICON.spark + '<span>Ask the assistant: “task tomorrow 10:00 call bank”</span>' + ICON.mic + '</button>';
+    html += focusCard();
+    var imp = sel.urgent();
+    html += section('Most important', imp.length, imp.length > 5 ? '<button class="link-btn" data-go="urgent">All</button>' : '') + taskList(imp.slice(0, 5), 'home-top', 'Nothing marked most important.', { sortable: false });
+    var deleg = db.tasks.filter(function (x) { return isOpen(x) && x.delegatedTo; }).length;
+    html += '<div class="tiles eight" style="margin-top:14px">' +
+      homeTile('inbox', 'Inbox', sel.inbox().length) + homeTile('today', 'Today', sel.today().length) + homeTile('urgent', 'Most important', imp.length, imp.length ? 'alert' : '') + homeTile('followup', 'Follow-up', sel.waiting().length) +
+      homeTile('delegated', 'Delegated', deleg) + homeTile('someday', 'Someday', sel.someday().length) + homeTile('logbook', 'Done', sel.doneToday().length) + homeTile('paused', 'Paused', sel.paused().length) + '</div>';
+    var dl = sel.deadlines().filter(function (x) { return x.date <= addDays(t, 7); });
+    if (dl.length) html += section('Deadlines this week', dl.length, '<button class="link-btn" data-go="deadlines">All</button>') + taskList(dl.slice(0, 4), 'home-dl', '', { sortable: false });
+    var timed = sel.onDate(t).filter(function (x) { return x.time; });
+    if (timed.length) html += section('Today’s schedule', null, '<button class="link-btn" data-go="calendar">Calendar</button>') + '<div class="card pad stack">' + timed.map(function (x) { return '<button class="tblock' + (x.done ? ' done' : '') + '" data-act="editTask" data-id="' + esc(x.id) + '"><div class="t">' + esc(x.time) + '</div>' + esc(x.title) + '</button>'; }).join('') + '</div>';
+    html += timeLeftHtml();
+    html += '<div class="card pad safe-quick" style="margin-top:14px"><span class="row">' + ICON.lock + '<span><strong>Safe</strong><span class="muted small" style="display:block">' + (Vault.unlocked() ? (Vault.records.length + ' records · unlocked') : (Vault.exists() ? 'Locked' : 'Not set up')) + '</span></span></span><span class="row"><button class="tiny-btn" data-go="safe">Open</button><button class="tiny-btn" data-act="homeSafeAdd">+ Add</button></span></div>';
+    html += moneyCard();
+    html += section('Shortcuts') + '<div class="shortcuts">' + HOME_LINKS.map(function (r) { return '<button class="shortcut" data-go="' + r + '">' + ICON[ROUTES[r].icon] + '<span>' + esc(ROUTES[r].title.split(' ·')[0].replace('Travel planner', 'Travel').replace('Income & Expenses', 'Money')) + '</span></button>'; }).join('') + '</div>';
+    html += section('My priorities', null, '<button class="link-btn" data-act="newLifePri">+ Add</button>') +
+      '<div class="pri-chips">' + db.lifePriorities.map(function (p, i) { return '<button class="pri-chip" data-act="editLifePri" data-i="' + i + '"><b>' + (i + 1) + '</b>' + esc(p) + '</button>'; }).join('') + '</div>';
+    html += habitsHomeHtml(t);
+    html += dayCardHtml(t);
+    return html;
+  };
+
+  /* ---------- grouped, collapsible menu ---------- */
+  DRAWER_GROUPS = [
+    ['Tasks', ['inbox', 'today', 'urgent', 'upcoming', 'deadlines', 'anytime', 'someday', 'followup', 'delegated', 'paused', 'logbook']],
+    ['Views', ['calendar', 'kanban']],
+    ['Areas & projects', ['areas', 'projects']],
+    ['Life', ['habits', 'journal', 'life', 'friends', 'travel']],
+    ['Knowledge', ['notes', 'bookmarks', 'media']],
+    ['Vault', ['safe']],
+    ['Money', ['finance', 'purchases']],
+    ['App', ['settings', 'account']]
+  ];
+  var DRAWER_SUB = {
+    deadlines: function () {
+      var d = sel.deadlines()[0]; if (!d) return 'Nothing due';
+      var n = daysTo(d.date); return n < 0 ? 'Overdue: ' + d.title : 'Next ' + inDays(n).replace('due ', '');
+    },
+    habits: 'Daily check-offs', journal: 'Mood and notes for each day', life: '80 years × 52 weeks', friends: 'People to keep in touch with',
+    travel: 'Trips and checklists', notes: 'Text, photos, links', bookmarks: 'Quick links', media: 'Movies, books, talks, music',
+    safe: 'Logins · documents · cards', finance: 'Earned, spent, balance, net worth', purchases: 'Planned big buys',
+    settings: 'Theme, widgets, personal', account: 'Sign in and sync'
+  };
+  function drawerClosed() { return readCache('focus.drawer.closed') || {}; }
+  actions.toggleGroup = function (el) {
+    var c = drawerClosed(), g = el.dataset.g;
+    if (c[g]) delete c[g]; else c[g] = 1;
+    writeCache('focus.drawer.closed', c); renderDrawer();
+    var b = $('#drawer .group-btn[data-g="' + g + '"]'); if (b) try { b.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+  };
+  renderDrawer = function () {
+    var counts = {
+      inbox: sel.inbox().length, today: sel.today().length, urgent: sel.urgent().length, upcoming: sel.upcoming().length,
+      deadlines: sel.deadlines().length, someday: sel.someday().length, followup: sel.waiting().length,
+      delegated: db.tasks.filter(function (x) { return isOpen(x) && x.delegatedTo; }).length, paused: sel.paused().length
+    };
+    var r = ui.route, cur = ROUTES[r.name].sub ? { note: 'notes', trip: 'travel' }[r.name] || '' : r.name, closed = drawerClosed();
+    function link(name) {
+      var sub = DRAWER_SUB[name]; if (typeof sub === 'function') sub = sub();
+      var n = counts[name], cls = name === 'inbox' ? ' pill' : name === 'urgent' || (name === 'deadlines' && sel.deadlines().some(function (x) { return x.date < today(); })) ? ' hot' : '';
+      return '<button class="nav-link' + (sub ? ' two' : '') + '" data-go="' + name + '"' + (name === cur ? ' aria-current="page"' : '') + '>' + ICON[ROUTES[name].icon] +
+        '<span class="nl"' + (sub ? ' data-sub="' + esc(sub) + '"' : '') + '>' + esc(ROUTES[name].title) + '</span>' + (n ? '<span class="badge' + cls + '">' + n + '</span>' : '') + '</button>';
+    }
+    function tree() {
+      return db.areas.map(function (a) {
+        var ps = db.projects.filter(function (p) { return p.area === a.id && p.status !== 'completed'; }).sort(function (x, y) { return (x.order || 0) - (y.order || 0); });
+        return '<button class="nav-proj" data-go="area" data-id="' + esc(a.id) + '"' + (r.name === 'area' && r.id === a.id ? ' aria-current="page"' : '') + '>' + ICON.folder + '<span>' + esc(a.name) + '</span></button>' +
+          ps.map(function (p) {
+            var st = projectStats(p.id), pct = st.total ? st.done / st.total : 0;
+            return '<button class="nav-proj child" data-go="project" data-id="' + esc(p.id) + '"' + (r.name === 'project' && r.id === p.id ? ' aria-current="page"' : '') + '><span class="ring">' + ICON.ring(pct) + '</span><span>' + esc(p.name) + '</span>' + (st.open ? '<span class="badge">' + st.open + '</span>' : '') + '</button>';
+          }).join('');
+      }).join('');
+    }
+    var html = link('home');
+    DRAWER_GROUPS.forEach(function (g) {
+      var isClosed = !!closed[g[0]];
+      html += '<button class="group-btn" data-act="toggleGroup" data-g="' + esc(g[0]) + '" aria-expanded="' + !isClosed + '">' + esc(g[0]) + ICON.chev + '</button>';
+      if (!isClosed) html += g[1].map(link).join('') + (g[0] === 'Areas & projects' ? tree() : '');
+    });
+    $('#drawerNav').innerHTML = html;
+  };
+
+  /* ---------- bottom bar: Inbox replaces More ---------- */
+  var _render6 = render;
+  render = function (rs) {
+    _render6(rs);
+    var b = $('#tabInboxN');
+    if (b) { var n = sel.inbox().length; b.textContent = n ? String(n) : ''; b.hidden = !n; }
+  };
+
+  /* ================= v1.6.1: monthly balances made simple ================= */
+  APP_VERSION = '1.6.1';
+
+  /* My debts are always stored as negative, debts to me as positive, whatever sign you type. */
+  function signedAmount(cat, v) { return cat === 'mydebt' ? -Math.abs(v) : cat === 'theirdebt' ? Math.abs(v) : v; }
+  function shownAmount(cat, v) { return cat === 'mydebt' || cat === 'theirdebt' ? Math.abs(v) : v; }
+  function parseAmount(raw) {
+    raw = String(raw == null ? '' : raw).replace(/\s/g, '').replace(',', '.');
+    if (raw === '') return null;
+    var n = parseFloat(raw);
+    return isNaN(n) ? NaN : Math.round(n * 100) / 100;
+  }
+  function amountLabel(cat) { return cat === 'mydebt' ? 'I owe' : cat === 'theirdebt' ? 'Owed to me' : 'Balance'; }
+  function putBalance(accId, date, amount) {
+    db.balances = db.balances.filter(function (b) { return !(b.account === accId && b.date === date); });
+    db.balances.push({ id: uid(), account: accId, date: date, amount: amount });
+  }
+  function monthName(d) { return MONTHS[parseYmd(d).getMonth()]; }
+  function recordedThisMonth() { var m = today().slice(0, 7); return db.balances.some(function (b) { return b.date.slice(0, 7) === m; }); }
+
+  /* ---------- account form: name, type, currency, balance and date in one step ---------- */
+  accountForm = function (a) {
+    var lb = a ? latestBalances('')[a.id] : null, cat = a ? a.category : 'bank';
+    openSheet(a ? 'Edit account' : 'New account', '<form data-form="account" data-id="' + esc(a ? a.id : '') + '" novalidate>' +
+      '<label class="field"><span>Account name</span><input name="name" value="' + esc(a ? a.name : '') + '" required' + (a ? '' : ' autofocus') + ' placeholder="e.g. BCA Bali, Tinkoff RUB, Loan to Ivan"></label><p class="hint" id="accErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="fields2"><label class="field"><span>Type</span><select name="category" data-acc-cat>' + options(ACC_CATS, cat) + '</select></label>' +
+      '<label class="field"><span>Currency</span><select name="currency">' + options(CURRENCIES, a ? a.currency : 'USD') + '</select></label></div>' +
+      '<div class="fields2"><label class="field"><span id="accAmtL">' + amountLabel(cat) + '</span><input name="amount" type="text" inputmode="decimal" placeholder="' + (lb ? esc(String(shownAmount(cat, lb.amount))) : '0') + '"></label>' +
+      '<label class="field"><span>Date of the entry</span><input type="date" name="date" value="' + today() + '" required></label></div>' +
+      '<p class="hint">' + (a ? (lb ? 'Last entry: ' + esc(fmtMoney(lb.amount, a.currency)) + ' on ' + esc(fmtDate(lb.date, { full: true })) + '. Enter a new amount to add an entry for this date, or leave it empty.' : 'No entries yet.') : 'Credit cards and debts: type the amount without a minus, Focus counts it as money you owe.') + '</p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save account</button>' + (a ? '<button type="button" class="btn danger block" data-act="deleteAccount" data-id="' + esc(a.id) + '">Delete account and its history</button>' : '') + '</div></form>');
+  };
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute('data-acc-cat')) return;
+    var l = $('#accAmtL'); if (l) l.textContent = amountLabel(t.value);
+  });
+  submitters.account = function (form) {
+    var name = val(form, 'name'), err = $('#accErr');
+    if (!name) { err.textContent = 'Name the account.'; return; }
+    var amt = parseAmount(val(form, 'amount')), date = val(form, 'date');
+    if (amt !== null && isNaN(amt)) { err.textContent = 'The balance must be a number.'; return; }
+    if (amt !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = 'Choose the date of the entry.'; return; }
+    var isNew = !form.dataset.id, a = isNew ? { id: 'acc_' + uid() } : byId(db.accounts, form.dataset.id);
+    if (!a) { closeSheet(); return; }
+    var oldCat = a.category;
+    a.name = name; a.category = val(form, 'category'); a.currency = val(form, 'currency');
+    if (isNew) db.accounts.push(a);
+    if (!isNew && oldCat !== a.category) db.balances.forEach(function (b) { if (b.account === a.id) b.amount = signedAmount(a.category, b.amount); });
+    if (amt !== null) putBalance(a.id, date, signedAmount(a.category, amt));
+    save(); closeSheet(); ui.moneyTab = 'balance'; render();
+    toast(amt !== null ? 'Saved ' + name + ': ' + fmtMoney(signedAmount(a.category, amt), a.currency) : 'Account saved');
+  };
+
+  /* ---------- monthly entry: every account on one screen, grouped, with last month shown ---------- */
+  actions.recordBalances = function (el) {
+    var date = (el && el.dataset && el.dataset.date) || today(), lb = latestBalances(date);
+    var groups = ACC_CATS.map(function (c) {
+      var accs = db.accounts.filter(function (a) { return a.category === c[0]; }); if (!accs.length) return '';
+      return '<div class="bal-grp">' + esc(c[1]) + '</div>' + accs.map(function (a) {
+        var b = lb[a.id];
+        return '<label class="bal-field"><span class="bf-name">' + esc(a.name) + '<span class="muted small">' + esc(a.currency) + (b ? ' · last ' + esc(fmtDate(b.date, { full: true })) : ' · no entries yet') + '</span></span>' +
+          '<input type="text" inputmode="decimal" name="acc_' + esc(a.id) + '" value="' + (b ? esc(String(shownAmount(a.category, b.amount))) : '') + '" placeholder="0" aria-label="' + esc(a.name + ', ' + amountLabel(a.category)) + '"></label>';
+      }).join('');
+    }).join('');
+    openSheet('Record balances', '<form data-form="balances" novalidate>' +
+      '<label class="field"><span>Date of the entry</span><input type="date" name="date" value="' + esc(date) + '" required></label>' +
+      (db.accounts.length ? '<p class="hint">Prefilled with the latest amounts: change only what moved. Debts are typed without a minus.</p>' + groups : '<p class="hint">Add your first account below. Next month every account will be listed here.</p>') +
+      '<div class="bal-grp">Add an account</div>' +
+      '<div class="bal-new"><input class="input" name="new_name" placeholder="Account name" aria-label="New account name">' +
+      '<div class="fields2"><select class="input" name="new_cat" aria-label="New account type">' + options(ACC_CATS, 'bank') + '</select>' +
+      '<select class="input" name="new_cur" aria-label="New account currency">' + options(CURRENCIES, 'USD') + '</select></div>' +
+      '<input class="input" name="new_amount" type="text" inputmode="decimal" placeholder="Amount" aria-label="New account amount"></div>' +
+      '<p class="hint" id="balErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save balances</button></div></form>');
+  };
+  submitters.balances = function (form) {
+    var date = val(form, 'date'), err = $('#balErr');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = 'Choose the date of the entry.'; return; }
+    var bad = [];
+    db.accounts.forEach(function (a) { var v = parseAmount((form.elements['acc_' + a.id] || {}).value); if (v !== null && isNaN(v)) bad.push(a.name); });
+    var nn = val(form, 'new_name'), na = parseAmount(val(form, 'new_amount'));
+    if (na !== null && isNaN(na)) bad.push(nn || 'the new account');
+    if (bad.length) { err.textContent = 'Not a number: ' + bad.join(', ') + '.'; return; }
+    if (!nn && na !== null) { err.textContent = 'Name the new account.'; form.elements.new_name.focus(); return; }
+    db.accounts.forEach(function (a) {
+      var v = parseAmount((form.elements['acc_' + a.id] || {}).value);
+      if (v === null) db.balances = db.balances.filter(function (b) { return !(b.account === a.id && b.date === date); });
+      else putBalance(a.id, date, signedAmount(a.category, v));
+    });
+    if (nn) {
+      var acc = { id: 'acc_' + uid(), name: nn, category: val(form, 'new_cat') || 'bank', currency: val(form, 'new_cur') || 'USD' };
+      db.accounts.push(acc);
+      if (na !== null) putBalance(acc.id, date, signedAmount(acc.category, na));
+    }
+    save(); closeSheet(); ui.moneyTab = 'balance'; render(); toast('Balances saved for ' + fmtDate(date, { full: true }));
+  };
+  actions.newAccount = function () { accountForm(null); };
+
+  /* ---------- Money remembers the tab you used last ---------- */
+  ui.moneyTab = readCache('focus.moneyTab') || ui.moneyTab;
+  actions.moneyTab = function (el) { ui.moneyTab = el.dataset.v; writeCache('focus.moneyTab', ui.moneyTab); render(); };
+
+  /* ---------- My balance: monthly nudge at the top ---------- */
+  var _balanceView161 = balanceView;
+  balanceView = function () {
+    var html = _balanceView161();
+    if (!db.accounts.length || recordedThisMonth()) return html;
+    var nudge = '<div class="notice bal-due"><span>' + esc(monthName(today())) + ' balances aren’t recorded yet.</span><button class="tiny-btn" data-act="recordBalances">Record now</button></div>';
+    var i = html.indexOf('<div class="btn-row"');
+    return i >= 0 ? html.slice(0, i) + nudge + html.slice(i) : nudge + html;
+  };
+
+  /* ---------- Home: net worth, and a reminder when this month isn't recorded ---------- */
+  var _moneyCard161 = moneyCard;
+  moneyCard = function () {
+    var html = _moneyCard161(), extra;
+    if (!db.accounts.length) extra = '<button class="link-btn" data-act="newAccount">+ Add your accounts to track net worth</button>';
+    else if (!recordedThisMonth()) extra = '<button class="link-btn" data-act="recordBalances">Record ' + esc(monthName(today())) + ' balances</button>';
+    else return html;
+    return html.replace(/<\/div>$/, extra + '</div>');
+  };
+
+  /* ================= v1.6.2: tap an account to add or edit its balances; Credit cards ================= */
+  APP_VERSION = '1.6.2';
+
+  /* ---------- Credit cards: money you owe the bank, always counted as negative ---------- */
+  (function () { for (var i = 0; i < ACC_CATS.length; i++) if (ACC_CATS[i][0] === 'mydebt') { ACC_CATS.splice(i, 0, ['card', 'Credit cards']); return; } })();
+  function owes(cat) { return cat === 'mydebt' || cat === 'card'; }
+  signedAmount = function (cat, v) { return owes(cat) ? -Math.abs(v) : cat === 'theirdebt' ? Math.abs(v) : v; };
+  shownAmount = function (cat, v) { return owes(cat) || cat === 'theirdebt' ? Math.abs(v) : v; };
+  amountLabel = function (cat) { return owes(cat) ? 'I owe' : cat === 'theirdebt' ? 'Owed to me' : 'Balance'; };
+  balanceTotals = function (onDate, cur) {
+    var lb = latestBalances(onDate), s = { cash: 0, bank: 0, crypto: 0, card: 0, mydebt: 0, theirdebt: 0, asset: 0 };
+    db.accounts.forEach(function (a) { var b = lb[a.id]; if (b && a.category in s) s[a.category] += convert(b.amount, a.currency, cur); });
+    s.liquid = s.cash + s.bank + s.crypto + s.card + s.mydebt + s.theirdebt; s.net = s.liquid + s.asset;
+    return s;
+  };
+  function balCurrency() { return MONEY_CURS.indexOf(ui.balCur) >= 0 ? ui.balCur : (MONEY_CURS.indexOf(db.settings.currency) >= 0 ? db.settings.currency : 'USD'); }
+
+  /* ---------- My balance: Credit cards in the summary, whole account rows tappable ---------- */
+  var _balanceView162 = balanceView;
+  balanceView = function () {
+    var html = _balanceView162();
+    if (!db.accounts.length) return html;
+    var cur = balCurrency(), s = balanceTotals('', cur);
+    html = html.replace('<div class="sum-row"><span>My debts</span>', '<div class="sum-row"><span>Credit cards</span><span class="money" data-sum="card">' + esc(fmtMoney(Math.round(s.card), cur)) + '</span></div><div class="sum-row"><span>My debts</span>');
+    html = html.replace(/<tr><td>([^<]*)<\/td><td><button class="cell-btn" data-act="editAccount" data-id="([^"]+)"/g,
+      '<tr class="acc-row" data-act="editAccount" data-id="$2"><td>$1</td><td><button class="cell-btn" data-act="editAccount" data-id="$2"');
+    return html.replace('<div class="table-wrap">', '<p class="muted small" style="margin:-2px 0 8px">Tap an account to add or edit its balances.</p><div class="table-wrap">');
+  };
+
+  /* ---------- one account: current balance, add an entry, edit or delete any entry ---------- */
+  function accountSheet(a, entryId) {
+    var hist = db.balances.filter(function (b) { return b.account === a.id; }).sort(function (x, y) { return x.date < y.date ? 1 : -1; });
+    var last = hist[0], edit = entryId ? byId(db.balances, entryId) : null, cat = a.category;
+    var catName = label(ACC_CATS, cat) || cat;
+    var html = '<div class="acc-now"><span class="muted small">' + esc(catName) + ' · ' + esc(a.currency) + '</span>' +
+      '<span class="acc-amt money' + (last && last.amount < 0 ? ' neg' : '') + '" id="accNow">' + (last ? esc(fmtMoney(last.amount, a.currency)) : '—') + '</span>' +
+      '<span class="muted small">' + (last ? 'as of ' + esc(fmtDate(last.date, { full: true })) : 'No entries yet') + '</span></div>';
+    html += '<form data-form="accEntry" data-id="' + esc(a.id) + '" data-entry="' + esc(edit ? edit.id : '') + '" class="card pad acc-entry" novalidate>' +
+      '<strong>' + (edit ? 'Edit entry' : 'New entry') + '</strong>' +
+      '<div class="fields2"><label class="field"><span>' + amountLabel(cat) + ', ' + esc(a.currency) + '</span><input name="amount" type="text" inputmode="decimal" value="' + (edit ? esc(String(shownAmount(cat, edit.amount))) : '') + '" placeholder="' + (last ? esc(String(shownAmount(cat, last.amount))) : '0') + '"' + (edit ? '' : ' autofocus') + '></label>' +
+      '<label class="field"><span>Date of the entry</span><input type="date" name="date" value="' + esc(edit ? edit.date : today()) + '" required></label></div>' +
+      '<p class="hint" id="entryErr" role="alert" style="color:var(--bad)">' + '</p>' +
+      '<div class="btn-row"><button class="btn" type="submit">' + (edit ? 'Save changes' : 'Add entry') + '</button>' +
+      (edit ? '<button type="button" class="btn plain" data-act="openAccount" data-id="' + esc(a.id) + '">Cancel</button><button type="button" class="btn danger" data-act="deleteEntry" data-id="' + esc(edit.id) + '">Delete</button>' : '') + '</div></form>';
+    html += '<div class="section"><h2>History<span class="count">' + hist.length + '</span></h2></div>';
+    html += hist.length ? '<div class="list">' + hist.map(function (b, i) {
+      var prev = hist[i + 1], diff = prev ? b.amount - prev.amount : null;
+      return '<button class="rec entry-row' + (edit && edit.id === b.id ? ' on' : '') + '" data-act="editEntry" data-id="' + esc(b.id) + '"><span><strong>' + esc(fmtDate(b.date, { full: true })) + '</strong>' +
+        (diff ? '<span class="muted small" style="display:block">' + (diff > 0 ? '▲ ' : '▼ ') + esc(fmtMoney(Math.abs(diff), a.currency)) + ' vs previous</span>' : '<span class="muted small" style="display:block">Tap to edit</span>') +
+        '</span><span class="amt money' + (b.amount < 0 ? ' neg' : '') + '">' + esc(fmtMoney(b.amount, a.currency)) + '</span></button>';
+    }).join('') + '</div>' : '<div class="empty">Add the first balance above.</div>';
+    html += '<div class="actions"><button type="button" class="btn plain block" data-act="editAccountDetails" data-id="' + esc(a.id) + '">Edit name, type or currency</button></div>';
+    openSheet(a.name, html);
+  }
+  actions.editAccount = function (el) { var a = byId(db.accounts, el.dataset.id); if (a) accountSheet(a); };
+  actions.openAccount = actions.editAccount;
+  actions.editAccountDetails = function (el) { var a = byId(db.accounts, el.dataset.id); if (a) accountForm(a); };
+  actions.editEntry = function (el) {
+    var b = byId(db.balances, el.dataset.id), a = b && byId(db.accounts, b.account);
+    if (a) { accountSheet(a, b.id); var f = $('#sheet form[data-form=accEntry] input[name=amount]'); if (f) { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } } }
+  };
+  actions.deleteEntry = function (el) {
+    var b = byId(db.balances, el.dataset.id); if (!b) return;
+    var a = byId(db.accounts, b.account), copy = Object.assign({}, b);
+    db.balances.splice(db.balances.indexOf(b), 1); save(); render(); if (a) accountSheet(a);
+    toast('Entry deleted', 'Undo', function () { db.balances.push(copy); save(); render(); if (a && sheetOpen()) accountSheet(a); });
+  };
+  submitters.accEntry = function (form) {
+    var a = byId(db.accounts, form.dataset.id); if (!a) { closeSheet(); return; }
+    var amt = parseAmount(val(form, 'amount')), date = val(form, 'date'), err = $('#entryErr');
+    if (amt === null || isNaN(amt)) { err.textContent = 'Enter the amount as a number.'; form.elements.amount.focus(); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = 'Choose the date of the entry.'; return; }
+    var v = signedAmount(a.category, amt), e = form.dataset.entry ? byId(db.balances, form.dataset.entry) : null;
+    if (e) {
+      db.balances = db.balances.filter(function (b) { return b === e || !(b.account === a.id && b.date === date); });
+      e.date = date; e.amount = v;
+    } else putBalance(a.id, date, v);
+    save(); render(); accountSheet(a);
+    toast((e ? 'Updated ' : 'Added ') + fmtMoney(v, a.currency) + ' on ' + fmtDate(date, { full: true }));
+  };
+
+  /* After editing details from the account sheet, go back to it. */
+  var _submitAccount162 = submitters.account;
+  submitters.account = function (form) {
+    var id = form.dataset.id;
+    _submitAccount162(form);
+    var a = id && byId(db.accounts, id);
+    if (a && !sheetOpen()) setTimeout(function () { accountSheet(a); }, 260);
+  };
+
+  /* ================= v1.6.3: account order you control, balance on create, formatted amounts with currency ================= */
+  APP_VERSION = '1.6.3';
+
+  /* ---------- amounts: spaces between thousands while you type, currency sign in the field ---------- */
+  var CUR_SYM = { USD: '$', EUR: '€', RUB: '₽', IDR: 'Rp' };
+  function curSym(c) { return CUR_SYM[c] || c || ''; }
+  function fmtTyping(s) {
+    s = String(s == null ? '' : s).replace(/[^\d.,\-]/g, '');
+    var neg = s.charAt(0) === '-'; s = s.replace(/-/g, '');
+    if (!s) return neg ? '-' : '';
+    var i = s.search(/[.,]/), intp = i >= 0 ? s.slice(0, i) : s, dec = i >= 0 ? s.slice(i + 1).replace(/[.,]/g, '').slice(0, 2) : null;
+    intp = intp.replace(/^0+(?=\d)/, '');
+    if (intp === '' && dec !== null) intp = '0';
+    return (neg ? '-' : '') + intp.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (dec !== null ? '.' + dec : '');
+  }
+  parseAmount = function (raw) {
+    raw = String(raw == null ? '' : raw).replace(/[^\d.,\-]/g, '');
+    if (raw === '' || raw === '-') return raw === '-' ? NaN : null;
+    var neg = raw.charAt(0) === '-'; raw = raw.replace(/-/g, '');
+    var i = raw.search(/[.,]/);
+    if (i >= 0) raw = raw.slice(0, i) + '.' + raw.slice(i + 1).replace(/[.,]/g, '');
+    var n = parseFloat(raw); if (isNaN(n)) return NaN;
+    n = Math.round(n * 100) / 100;
+    return neg ? -n : n;
+  };
+  function moneyInput(name, value, cur, attrs) {
+    return '<span class="money-in"><span class="cur-sym" data-cur-sym>' + esc(curSym(cur)) + '</span><input name="' + name + '" type="text" inputmode="decimal" autocomplete="off" data-money="1" value="' + esc(value === '' || value == null ? '' : fmtTyping(String(value))) + '"' + (attrs || '') + '></span>';
+  }
+  function upgradeMoney(inp, cur) {
+    if (!inp || inp.dataset.money) return;
+    inp.dataset.money = '1'; inp.type = 'text'; inp.setAttribute('inputmode', 'decimal'); inp.setAttribute('autocomplete', 'off');
+    inp.classList.remove('input');
+    var wrap = document.createElement('span'); wrap.className = 'money-in';
+    inp.parentNode.insertBefore(wrap, inp);
+    var sym = document.createElement('span'); sym.className = 'cur-sym'; sym.setAttribute('data-cur-sym', ''); sym.textContent = curSym(cur);
+    wrap.appendChild(sym); wrap.appendChild(inp);
+    if (inp.value) inp.value = fmtTyping(inp.value);
+    if (inp.placeholder && /\d/.test(inp.placeholder)) inp.placeholder = fmtTyping(inp.placeholder);
+  }
+  document.addEventListener('input', function (e) {
+    var t = e.target; if (!t.dataset || !t.dataset.money) return;
+    var pos = t.selectionStart == null ? t.value.length : t.selectionStart;
+    var before = t.value.slice(0, pos).replace(/[^\d.,\-]/g, '').length, v = fmtTyping(t.value);
+    if (v === t.value) return;
+    t.value = v;
+    var n = 0, k = 0; while (k < v.length && n < before) { if (/[\d.\-]/.test(v.charAt(k))) n++; k++; }
+    try { t.setSelectionRange(k, k); } catch (x) { /* ignore */ }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t.getAttribute || !t.getAttribute('data-cur-for') || !t.form) return;
+    var inp = t.form.elements[t.getAttribute('data-cur-for')], sym = inp && inp.parentNode.querySelector('[data-cur-sym]');
+    if (sym) sym.textContent = curSym(t.value);
+  });
+
+  /* ---------- one order for accounts everywhere: summary groups, table, monthly entry ---------- */
+  function sortAccounts() {
+    db.accounts.forEach(function (a, i) { if (typeof a.order !== 'number') a.order = i + 1; });
+    db.accounts.sort(function (x, y) { return x.order - y.order; });
+  }
+  actions.moveAcc = function (el) {
+    sortAccounts(); db.accounts.forEach(function (x, k) { x.order = k + 1; });
+    var a = byId(db.accounts, el.dataset.id); if (!a) return;
+    var same = db.accounts.filter(function (x) { return x.category === a.category; }), i = same.indexOf(a), b = same[i + (+el.dataset.d)];
+    if (!b) return;
+    var t = a.order; a.order = b.order; b.order = t;
+    sortAccounts(); save();
+    var inSheet = !!(el.closest && el.closest('#sheet'));
+    render();
+    if (inSheet) accountSheet(a);
+    else { var again = $('#screen [data-act=moveAcc][data-id="' + a.id + '"][data-d="' + el.dataset.d + '"]'); if (again && !again.disabled) try { again.focus({ preventScroll: true }); } catch (x) { /* ignore */ } }
+  };
+  actions.accReorder = function () { ui.accReorder = !ui.accReorder; render(); };
+  var ARROW_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>';
+  var ARROW_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 10l6 6 6-6"/></svg>';
+
+  balanceView = function () {
+    sortAccounts();
+    var cur = balCurrency(), ro = !!ui.accReorder;
+    var html = '<div class="seg" role="group" aria-label="Show amounts in">' + MONEY_CURS.map(function (c) { return '<button data-act="balCur" data-v="' + c + '" aria-pressed="' + (c === cur) + '">' + c + '</button>'; }).join('') + '</div>';
+    if (db.accounts.length && !recordedThisMonth()) html += '<div class="notice bal-due"><span>' + esc(monthName(today())) + ' balances aren’t recorded yet.</span><button class="tiny-btn" data-act="recordBalances">Record now</button></div>';
+    html += '<div class="btn-row" style="margin-bottom:14px"><button class="btn" data-act="recordBalances">Record balances</button><button class="btn plain" data-act="newAccount">+ Account</button></div>';
+    if (!db.accounts.length) return html + '<div class="empty">Add your accounts (cash, banks, crypto, credit cards, debts, assets) with their current balance, then update them once a month.</div>';
+    var s = balanceTotals('', cur);
+    var row = function (k, l, v, cls) { return '<div class="sum-row' + (cls ? ' ' + cls : '') + '"><span>' + l + '</span><span class="money" data-sum="' + k + '">' + esc(fmtMoney(Math.round(v), cur)) + '</span></div>'; };
+    html += balSummaryHtml(s, cur, row);
+    html += netChart(cur);
+    var lb = latestBalances('');
+    html += section('Accounts', db.accounts.length, '<button class="link-btn" data-act="accReorder" aria-pressed="' + ro + '">' + (ro ? 'Done' : 'Reorder') + '</button>');
+    html += '<p class="muted small" style="margin:-2px 0 8px">' + (ro ? 'Move accounts up or down within their group. Every list in Money follows this order.' : 'Tap an account to add or edit its balances.') + '</p>';
+    html += '<div class="table-wrap"><table class="bal' + (ro ? ' reorder' : '') + '"><thead><tr>' + (ro ? '' : '<th>Record date</th>') + '<th>Account</th><th class="num">Amount, ' + esc(cur) + '</th>' + (ro ? '<th><span class="sr-only">Move</span></th>' : '') + '</tr></thead><tbody>';
+    ACC_CATS.forEach(function (c) {
+      var accs = db.accounts.filter(function (a) { return a.category === c[0]; }); if (!accs.length) return;
+      html += '<tr class="grp"><td colspan="3">' + esc(c[1]) + '</td></tr>';
+      accs.forEach(function (a, i) {
+        var b = lb[a.id];
+        html += '<tr class="acc-row"' + (ro ? '' : ' data-act="editAccount" data-id="' + esc(a.id) + '"') + '>' + (ro ? '' : '<td>' + (b ? esc(fmtDate(b.date, { full: true })) : '—') + '</td>') +
+          '<td><button class="cell-btn" data-act="editAccount" data-id="' + esc(a.id) + '">' + esc(a.name) + '</button></td>' +
+          '<td class="num money' + (b && b.amount < 0 ? ' neg' : '') + '">' + (b ? esc(fmtMoney(Math.round(convert(b.amount, a.currency, cur)), cur)) + (a.currency !== cur ? '<span class="orig">' + esc(fmtMoney(b.amount, a.currency)) + '</span>' : '') : '—') + '</td>' +
+          (ro ? '<td class="mv"><button class="mv-btn" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="-1" aria-label="Move ' + esc(a.name) + ' up"' + (i === 0 ? ' disabled' : '') + '>' + ARROW_UP + '</button><button class="mv-btn" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="1" aria-label="Move ' + esc(a.name) + ' down"' + (i === accs.length - 1 ? ' disabled' : '') + '>' + ARROW_DOWN + '</button></td>' : '') +
+          '</tr>';
+      });
+    });
+    html += '</tbody></table></div>';
+    var dates = balanceDates().reverse();
+    html += section('History', dates.length) + '<div class="list">' + dates.map(function (d) {
+      return '<button class="rec" data-act="recordBalances" data-date="' + d + '"><span><strong>' + esc(fmtDate(d, { full: true })) + '</strong><span class="muted small" style="display:block">Tap to edit balances</span></span><span class="amt money">' + esc(fmtMoney(Math.round(balanceTotals(d, cur).net), cur)) + '</span></button>';
+    }).join('') + '</div>';
+    var m = readCache('focus.market');
+    html += '<p class="muted small" style="margin-top:12px">Converted at ' + (db.settings.autoRates && m ? 'live rates (' + ago(m.t) + ')' : 'your rates in Settings') + ': 1 USD = ' + getRates().RUB.toFixed(2) + ' RUB = ' + Math.round(getRates().IDR) + ' IDR.</p>';
+    return html;
+  };
+
+  /* ---------- new account: balance comes right after the name and is required ---------- */
+  function newAmountLabel(cat) { return cat === 'mydebt' || cat === 'card' ? 'How much I owe now' : cat === 'theirdebt' ? 'How much is owed to me now' : 'Current balance'; }
+  accountForm = function (a) {
+    var lb = a ? latestBalances('')[a.id] : null, cat = a ? a.category : 'bank', cur = a ? a.currency : 'USD';
+    openSheet(a ? 'Edit account' : 'New account', '<form data-form="account" data-id="' + esc(a ? a.id : '') + '" novalidate>' +
+      '<label class="field"><span>Account name</span><input name="name" value="' + esc(a ? a.name : '') + '" required' + (a ? '' : ' autofocus') + ' placeholder="e.g. BCA Bali, Tinkoff RUB, Visa card" enterkeyhint="next"></label>' +
+      '<label class="field"><span id="accAmtL"' + (a ? '' : ' data-new="1"') + '>' + (a ? amountLabel(cat) + ' · new entry, optional' : newAmountLabel(cat)) + '</span>' +
+      moneyInput('amount', '', cur, a ? ' placeholder="' + (lb ? esc(fmtTyping(String(shownAmount(cat, lb.amount)))) : '0') + '"' : ' placeholder="0" required') + '</label>' +
+      '<p class="hint" id="accErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="fields2"><label class="field"><span>Type</span><select name="category" data-acc-cat>' + options(ACC_CATS, cat) + '</select></label>' +
+      '<label class="field"><span>Currency</span><select name="currency" data-cur-for="amount">' + options(CURRENCIES, cur) + '</select></label></div>' +
+      '<label class="field"><span>Date of the entry</span><input type="date" name="date" value="' + today() + '" required></label>' +
+      '<p class="hint">' + (a ? (lb ? 'Last entry: ' + esc(fmtMoney(lb.amount, a.currency)) + ' on ' + esc(fmtDate(lb.date, { full: true })) + '.' : 'No entries yet.') : 'Credit cards and debts: type the amount without a minus, Focus counts it as money you owe.') + '</p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save account</button>' + (a ? '<button type="button" class="btn danger block" data-act="deleteAccount" data-id="' + esc(a.id) + '">Delete account and its history</button>' : '') + '</div></form>');
+  };
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute('data-acc-cat')) return;
+    var l = $('#accAmtL'); if (l && l.dataset.new) l.textContent = newAmountLabel(t.value);
+  });
+  var _submitAccount163 = submitters.account;
+  submitters.account = function (form) {
+    if (!form.dataset.id && val(form, 'name') && parseAmount(val(form, 'amount')) === null) {
+      $('#accErr').textContent = 'Enter the current balance (0 if the account is empty).'; form.elements.amount.focus(); return;
+    }
+    _submitAccount163(form);
+    sortAccounts(); save();
+  };
+
+  /* ---------- monthly entry and the account screen use the same order and formatted amounts ---------- */
+  var _recordBalances163 = actions.recordBalances;
+  actions.recordBalances = function (el) {
+    sortAccounts();
+    _recordBalances163(el);
+    db.accounts.forEach(function (a) { upgradeMoney($('#sheet input[name="acc_' + a.id + '"]'), a.currency); });
+    upgradeMoney($('#sheet input[name=new_amount]'), 'USD');
+    var nc = $('#sheet select[name=new_cur]'); if (nc) nc.setAttribute('data-cur-for', 'new_amount');
+  };
+  var _submitBalances163 = submitters.balances;
+  submitters.balances = function (form) {
+    if (val(form, 'new_name') && parseAmount(val(form, 'new_amount')) === null) {
+      $('#balErr').textContent = 'Enter the balance of the new account (0 if it’s empty).'; form.elements.new_amount.focus(); return;
+    }
+    _submitBalances163(form);
+    sortAccounts(); save();
+  };
+  var _accountSheet163 = accountSheet;
+  accountSheet = function (a, entryId) {
+    sortAccounts();
+    _accountSheet163(a, entryId);
+    upgradeMoney($('#sheet form[data-form=accEntry] input[name=amount]'), a.currency);
+    var same = db.accounts.filter(function (x) { return x.category === a.category; }), i = same.indexOf(a), det = $('#sheet [data-act=editAccountDetails]');
+    if (same.length > 1 && det) det.parentNode.insertAdjacentHTML('beforebegin',
+      '<div class="btn-row acc-move"><button type="button" class="btn plain" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="-1"' + (i === 0 ? ' disabled' : '') + '>' + ARROW_UP + 'Move up</button>' +
+      '<button type="button" class="btn plain" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="1"' + (i === same.length - 1 ? ' disabled' : '') + '>' + ARROW_DOWN + 'Move down</button></div>');
+  };
+
+  /* ================= v1.6.4: saldo = liquid money + debts to me − my debts and credit cards; Stocks ================= */
+  APP_VERSION = '1.6.4';
+  ACC_CATS = [['cash', 'Cash'], ['bank', 'Banks'], ['crypto', 'Crypto'], ['stocks', 'Stocks'], ['theirdebt', 'Debts to me'], ['mydebt', 'My debts'], ['card', 'Credit cards'], ['asset', 'Assets']];
+  /* Whatever sign was typed (older versions needed a minus), debts and cards always reduce the saldo. */
+  function signedFor(cat, v) { v = Number(v) || 0; return owes(cat) ? -Math.abs(v) : cat === 'theirdebt' ? Math.abs(v) : v; }
+  balanceTotals = function (onDate, cur) {
+    var lb = latestBalances(onDate), s = { cash: 0, bank: 0, crypto: 0, stocks: 0, theirdebt: 0, mydebt: 0, card: 0, asset: 0 };
+    db.accounts.forEach(function (a) { var b = lb[a.id]; if (b && a.category in s) s[a.category] += convert(signedFor(a.category, b.amount), a.currency, cur); });
+    s.liquid = s.cash + s.bank + s.crypto + s.stocks;
+    s.debts = s.mydebt + s.card;
+    s.saldo = s.liquid + s.theirdebt + s.debts;
+    s.net = s.saldo + s.asset;
+    return s;
+  };
+  var _normalize164 = normalize;
+  normalize = function (d) {
+    d = _normalize164(d);
+    var cat = {};
+    (d.accounts || []).forEach(function (a) { cat[a.id] = a.category; });
+    (d.balances || []).forEach(function (b) {
+      var c = cat[b.account];
+      if (c === 'mydebt' || c === 'card') { if (b.amount > 0) b.amount = -b.amount; }
+      else if (c === 'theirdebt' && b.amount < 0) b.amount = -b.amount;
+    });
+    return d;
+  };
+  function balSummaryHtml(s, cur, row) {
+    var sub = function (k, l) { return '<div class="sum-row sub"><span>' + l + '</span><span class="money" data-sum="' + k + '">' + esc(fmtMoney(Math.round(s[k]), cur)) + '</span></div>'; };
+    return '<div class="card pad" id="balSummary">' +
+      row('liquid', 'Cash + banks + crypto + stocks', s.liquid, 'main') + sub('cash', 'Cash') + sub('bank', 'Banks') + sub('crypto', 'Crypto') + sub('stocks', 'Stocks') +
+      row('theirdebt', '+ Debts to me', s.theirdebt, 'main') +
+      row('debts', '− My debts and credit cards', s.debts, 'main') + sub('mydebt', 'My debts') + sub('card', 'Credit cards') +
+      row('saldo', 'Total saldo', s.saldo, 'total') +
+      row('asset', '+ Assets value', s.asset, 'main') +
+      row('net', 'Net worth', s.net, 'total big') + '</div>';
+  }
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');

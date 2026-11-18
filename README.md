@@ -8,9 +8,13 @@ Plain HTML, CSS and JavaScript with no frameworks and no build step, so there is
 
 15 screens: Home, Inbox, Today, Upcoming, Anytime, Someday, Logbook, Calendar, Kanban, Areas, Projects, Notes, Safe Storage, Income & Expenses, Major Purchases.
 
-- **Navigation.** Hamburger menu on the left of every screen with all 15 sections. Back button returns to the previous screen; the iOS swipe-back gesture works too. Bottom bar has Home, Today, **+**, Calendar and Projects.
-- **+ button** opens a chooser: Task, Note, Safe, Income, Expense.
-- **Tasks.** New tasks always land in **Inbox** unless you pick another list. Priorities are Urgent, High, Medium and Low. Each task has a date and time, status (To Do, In Progress, Waiting, Done), area, project, repeat, notes and subtasks. Completing a repeating task creates the next one. Every completion can be undone.
+- **Navigation.** Hamburger menu on the left of every screen. Sections are grouped (Tasks, Views, Areas & projects, Life, Knowledge, Vault, Money, App); tap a group name to fold it, and the menu remembers. Areas show their projects underneath with a progress ring. Back returns to the previous screen; the iOS swipe-back gesture works too. Bottom bar has Home, Today, **+**, Calendar and Inbox (with a count).
+- **Add where you are.** Every task list ends with a one-line field: type a title and press Return. The task lands in the section you're on (Today gets today's date, Most important gets Urgent, Follow-up and Paused set the status, a project or area files it there, Deadlines asks for the date), and the line stays open for the next one. Undo is in the message that appears. The ⋯ button opens the full form, already set to that section.
+- **+ button** adds to the screen you're on: a one-line task (or a note, from Notes), with Task, Assistant, Note, Safe, Income, Expense, Balance and Bookmark below it. On Money, Safe, Bookmarks, Watch · Read · Listen, Habits, Friends, Travel, Major Purchases and Journal it opens that section's own form.
+- **Tasks.** From Home and Inbox, new tasks go to **Inbox**. Priorities are Urgent, High, Medium and Low. Each task has a date and time, status (To Do, In Progress, Follow-up, Paused, Done), area, project, repeat, notes, subtasks and an optional **Hard deadline**. Completing a repeating task creates the next one. Every completion can be undone.
+- **Deadlines.** Tasks with a hard due date, grouped into Overdue, Next 7 days and Later, each showing how many days are left. The menu shows when the next one is due; Home lists this week's.
+- **Home.** Clocks (LA, New York, Moscow, Bali), weather, sunrise/sunset and a traffic map for where you are, exchange rates, Today's focus (the first three tasks in Today), Most important, task counters, time left in the day/week/month/year/80 years, Safe, Money (hidden until you tap Show), shortcuts, then My priorities, Habits today and How was today.
+- **Journal.** Rate each day with one of five faces and add a note. Today's rating is also at the bottom of Home.
 - **Drag and drop.** Hold the ⋮⋮ handle to reorder tasks with your finger. On Kanban, drag cards between columns; hold at the screen edge to shift the board one column. Order and status are saved.
 - **Areas.** Exactly two: Personal and Business. Every project belongs to one of them.
 - **Calendar.** Month, Week and Day views.
