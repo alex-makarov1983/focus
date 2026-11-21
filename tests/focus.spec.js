@@ -377,8 +377,9 @@ test('Home: 4 city clocks, USDT/RUB, BTC, weather and traffic where you are, qui
   await expect(page.locator('#wUsdt')).toHaveText('95.40 ₽');
   await expect(page.locator('#wBtc')).toHaveText('$97,120');
   await expect(page.locator('#wTemp')).toHaveText('-3°');
-  await expect(page.locator('#wTemp').locator('xpath=..')).toContainText('Here');
+  await expect(page.locator('#wTemp').locator('xpath=..')).toContainText('Bali');
   await expect(page.locator('a.widget[href*="google.com/maps/@-8.6500,115.2200"]')).toHaveCount(1);
+  await expect(page.locator('a.widget[href*="google.com/maps"]')).toContainText('Bali');
   await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Follow-up', 'Delegated', 'Someday', 'Done', 'Paused']);
   await expect(page.locator('#screen')).not.toContainText('Waiting on others');
   await press(page, page.locator('.tile', { hasText: 'Most important' }));
@@ -697,7 +698,7 @@ test('Assistant: one message creates a task with date/time/priority, an expense 
   const task = d.tasks.find((x) => x.title === 'Позвонить в банк');
   const tomorrow = await page.evaluate(() => { const n = new Date(); n.setDate(n.getDate() + 1); return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0'); });
   expect(task).toMatchObject({ date: tomorrow, time: '10:00', priority: 'urgent', list: 'inbox' });
-  expect(d.finance.find((r) => r.amount === 1200)).toMatchObject({ kind: 'expense', currency: 'RUB', category: 'Такси' });
+  expect(d.finance.find((r) => r.amount === 1200)).toMatchObject({ kind: 'expense', currency: 'RUB', category: 'Transport', note: 'Такси' });
   expect(d.notes.some((n) => n.body === 'идеи для поездки')).toBe(true);
   await press(page, page.locator('.ai-bar'));
   await page.locator('#aiText').fill('Готово позвонить в банк');
@@ -1169,4 +1170,55 @@ test('Forms: the main button is at the top next to ✕; the assistant adds to th
   expect(d.finance.some((f) => f.amount === 1200 && f.kind === 'expense')).toBe(true);
   await press(page, page.locator('#toastBtn'));
   expect((await stored(page)).tasks.find((x) => x.title === 'Купить подарок')).toBeUndefined();
+});
+
+/* ===================== v1.7.1 ===================== */
+test.describe('location follows the phone', () => {
+  test.use({ timezoneId: 'Asia/Makassar' });
+  test('a saved Moscow position is replaced by Bali when the phone is on Bali time', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('focus.geo', JSON.stringify({ lat: 55.75, lon: 37.62, t: Date.now() - 86400000 })));
+    await open(page);
+    await expect(page.locator('.widget[data-act=enableGeo] .wl')).toContainText('Bali');
+    const g = await page.evaluate(() => JSON.parse(localStorage.getItem('focus.geo')));
+    expect(Math.round(g.lat)).toBe(-9);
+    await expect(page.locator('a.widget[href*="google.com/maps"]')).toContainText('Bali');
+  });
+});
+
+test('Closing a form saves the edit; Next week means next Monday', async ({ page }) => {
+  await open(page, '#/inbox');
+  await press(page, page.locator('#screen .task-body').first());
+  await page.locator('#sheet input[name=title]').fill('Renamed by closing');
+  await press(page, page.locator('#sheet [data-act=formDate][data-n="7"]'));
+  const v = await page.locator('#sheet input[name=date]').inputValue();
+  expect(new Date(v + 'T12:00:00').getDay()).toBe(1);
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  await expect(page.locator('.sheet-wrap')).not.toHaveClass(/on/);
+  const t = (await stored(page)).tasks.find((x) => x.title === 'Renamed by closing');
+  expect(t.date).toBe(v);
+  await press(page, page.locator('[data-act=newTask]').first());
+  await press(page, page.locator('#sheet [data-act=closeSheet]'));
+  expect((await stored(page)).tasks.filter((x) => x.title === '').length).toBe(0);
+});
+
+test('Assistant files anything: friend, trip, purchase, balance, journal, idea, link with tag, expense category', async ({ page }) => {
+  await open(page);
+  await press(page, page.locator('.ai-bar'));
+  await page.locator('#aiText').fill(['друг Иван +7 999 123 45 67', 'поездка в Японию', 'хочу купить лодку 30000$', 'баланс Main bank 25000', 'день был отличный', 'идея: подкаст про виллы', 'bookmark https://example.com #work', 'кофе 45000 idr'].join('\n'));
+  await expect(page.locator('.ai-item')).toHaveCount(8);
+  await expect(page.locator('.ai-item').nth(0)).toContainText('Friend');
+  await expect(page.locator('.ai-item').nth(1)).toContainText('Trip');
+  await expect(page.locator('.ai-item').nth(2)).toContainText('Purchase');
+  await expect(page.locator('.ai-item').nth(3)).toContainText('Main bank');
+  await expect(page.locator('.ai-item').nth(4)).toContainText('Journal');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  const d = await stored(page);
+  expect(d.friends.some((f) => f.name === 'Иван' && f.contact.includes('999'))).toBe(true);
+  expect(d.trips.some((x) => /Японию/.test(x.title))).toBe(true);
+  expect(d.purchases.some((x) => x.title === 'лодку' && x.amount === 30000 && x.currency === 'USD')).toBe(true);
+  expect(d.balances.some((b) => b.amount === 25000)).toBe(true);
+  expect(d.journal.some((j) => j.mood === 5)).toBe(true);
+  expect(d.notes.some((n) => n.body === 'подкаст про виллы')).toBe(true);
+  expect(d.bookmarks.some((b) => b.tag === 'work')).toBe(true);
+  expect(d.finance.some((f) => f.amount === 45000 && f.category === 'Family living' && f.currency === 'IDR')).toBe(true);
 });
