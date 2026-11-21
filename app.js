@@ -3879,7 +3879,7 @@
     var t = {
       id: uid(), title: title, notes: '', list: c.list || 'inbox', date: c.date || '', time: '', priority: c.priority || 'medium',
       status: 'todo', area: c.area || '', project: c.project || '', repeat: '', subtasks: [], done: false, completedAt: '',
-      order: maxOrder() + 1, createdAt: Date.now(), photos: [], delegatedTo: c.delegatedTo || '', deadline: !!c.deadline
+      order: minOrder() - 1, createdAt: Date.now(), photos: [], delegatedTo: c.delegatedTo || '', deadline: !!c.deadline
     };
     var p = t.project && project(t.project); if (p) t.area = p.area;
     db.tasks.push(t);
@@ -4156,12 +4156,12 @@
   function focusCard() {
     var all = sel.today(), top = all.slice(0, 3);
     var html = '<section class="focus-card" aria-label="Today’s focus"><div class="fc-head"><h2>Today’s focus</h2><button class="fc-link" data-go="today">' + (all.length > 3 ? 'All ' + all.length : 'Today') + '</button></div>';
-    html += top.length ? top.map(function (t) {
-      return '<div class="fc-row"><button class="check p-' + esc(t.priority) + '" role="checkbox" aria-checked="false" data-act="toggleTask" data-id="' + esc(t.id) + '" aria-label="Complete ' + esc(t.title) + '"><span class="box">' + ICON.tick + '</span></button>' +
-        '<button class="fc-title" data-act="editTask" data-id="' + esc(t.id) + '">' + esc(t.title) + '</button></div>';
-    }).join('') : '<p class="fc-empty">Nothing planned for today yet.</p>';
+    html += top.length ? '<div class="fc-list" data-sort-list="focus" data-sort-group="tasks">' + top.map(function (t) {
+      return '<div class="fc-row" data-sort-item="' + esc(t.id) + '"><button class="check p-' + esc(t.priority) + '" role="checkbox" aria-checked="false" data-act="toggleTask" data-id="' + esc(t.id) + '" aria-label="Complete ' + esc(t.title) + '"><span class="box">' + ICON.tick + '</span></button>' +
+        '<button class="fc-title" data-act="editTask" data-id="' + esc(t.id) + '">' + esc(t.title) + '</button><button class="grip" data-drag aria-label="Drag to reorder ' + esc(t.title) + '">' + ICON.grip + '</button></div>';
+    }).join('') + '</div>' : '<p class="fc-empty">Nothing planned for today yet.</p>';
     if (top.length < 3) html += quickAddHtml({ list: 'anytime', date: today(), where: 'Today' }, 'focus');
-    else html += '<p class="fc-hint">The first three tasks in Today. Drag them in Today to change the order.</p>';
+    else html += '<p class="fc-hint">The first three tasks in Today. Drag ⋮⋮ to change what comes first.</p>';
     return html + '</section>';
   }
   function timeLeftHtml() {
@@ -4233,9 +4233,14 @@
     html += timeLeftHtml();
     html += '<div class="card pad safe-quick" style="margin-top:14px"><span class="row">' + ICON.lock + '<span><strong>Safe</strong><span class="muted small" style="display:block">' + (Vault.unlocked() ? (Vault.records.length + ' records · unlocked') : (Vault.exists() ? 'Locked' : 'Not set up')) + '</span></span></span><span class="row"><button class="tiny-btn" data-go="safe">Open</button><button class="tiny-btn" data-act="homeSafeAdd">+ Add</button></span></div>';
     html += moneyCard();
-    html += section('Shortcuts') + '<div class="shortcuts">' + HOME_LINKS.map(function (r) { return '<button class="shortcut" data-go="' + r + '">' + ICON[ROUTES[r].icon] + '<span>' + esc(ROUTES[r].title.split(' ·')[0].replace('Travel planner', 'Travel').replace('Income & Expenses', 'Money')) + '</span></button>'; }).join('') + '</div>';
+    var links = homeLinks(), ed = !!ui.editShortcuts;
+    html += section('Shortcuts', null, '<button class="link-btn" data-act="editShortcuts" aria-pressed="' + ed + '">' + (ed ? 'Done' : 'Edit') + '</button>') +
+      '<div class="shortcuts' + (ed ? ' editing' : '') + '"' + (ed ? ' data-sort-list="homeLinks" data-sort-group="homeLinks" data-sort-axis="grid"' : '') + '>' + links.map(function (r) {
+        var lbl = esc(ROUTES[r].title.split(' ·')[0].replace('Travel planner', 'Travel').replace('Income & Expenses', 'Money'));
+        return ed ? '<div class="shortcut sc-edit" data-sort-item="' + r + '"><button class="grip" data-drag aria-label="Drag ' + lbl + '">' + ICON.grip + '</button>' + ICON[ROUTES[r].icon] + '<span>' + lbl + '</span></div>' : '<button class="shortcut" data-go="' + r + '">' + ICON[ROUTES[r].icon] + '<span>' + lbl + '</span></button>';
+      }).join('') + '</div>' + (ed ? '<p class="muted small" style="margin:6px 0 0">Drag ⋮⋮ to reorder, then tap Done.</p>' : '');
     html += section('My priorities', null, '<button class="link-btn" data-act="newLifePri">+ Add</button>') +
-      '<div class="pri-chips">' + db.lifePriorities.map(function (p, i) { return '<button class="pri-chip" data-act="editLifePri" data-i="' + i + '"><b>' + (i + 1) + '</b>' + esc(p) + '</button>'; }).join('') + '</div>';
+      '<div class="pri-chips" data-sort-list="lifePri" data-sort-group="lifePri" data-sort-axis="grid">' + db.lifePriorities.map(function (p, i) { return '<span class="pri-wrap" data-sort-item="' + i + '"><button class="grip" data-drag aria-label="Drag ' + esc(p) + '">' + ICON.grip + '</button><button class="pri-chip" data-act="editLifePri" data-i="' + i + '"><b>' + (i + 1) + '</b>' + esc(p) + '</button></span>'; }).join('') + '</div>';
     html += habitsHomeHtml(t);
     html += dayCardHtml(t);
     return html;
@@ -4468,7 +4473,7 @@
     var html = '<div class="acc-now"><span class="muted small">' + esc(catName) + ' · ' + esc(a.currency) + '</span>' +
       '<span class="acc-amt money' + (last && last.amount < 0 ? ' neg' : '') + '" id="accNow">' + (last ? esc(fmtMoney(last.amount, a.currency)) : '—') + '</span>' +
       '<span class="muted small">' + (last ? 'as of ' + esc(fmtDate(last.date, { full: true })) : 'No entries yet') + '</span></div>';
-    html += '<form data-form="accEntry" data-id="' + esc(a.id) + '" data-entry="' + esc(edit ? edit.id : '') + '" class="card pad acc-entry" novalidate>' +
+    html += '<form data-form="accEntry" data-keep-submit data-id="' + esc(a.id) + '" data-entry="' + esc(edit ? edit.id : '') + '" class="card pad acc-entry" novalidate>' +
       '<strong>' + (edit ? 'Edit entry' : 'New entry') + '</strong>' +
       '<div class="fields2"><label class="field"><span>' + amountLabel(cat) + ', ' + esc(a.currency) + '</span><input name="amount" type="text" inputmode="decimal" value="' + (edit ? esc(String(shownAmount(cat, edit.amount))) : '') + '" placeholder="' + (last ? esc(String(shownAmount(cat, last.amount))) : '0') + '"' + (edit ? '' : ' autofocus') + '></label>' +
       '<label class="field"><span>Date of the entry</span><input type="date" name="date" value="' + esc(edit ? edit.date : today()) + '" required></label></div>' +
@@ -4609,7 +4614,17 @@
     html += netChart(cur);
     var lb = latestBalances('');
     html += section('Accounts', db.accounts.length, '<button class="link-btn" data-act="accReorder" aria-pressed="' + ro + '">' + (ro ? 'Done' : 'Reorder') + '</button>');
-    html += '<p class="muted small" style="margin:-2px 0 8px">' + (ro ? 'Move accounts up or down within their group. Every list in Money follows this order.' : 'Tap an account to add or edit its balances.') + '</p>';
+    html += '<p class="muted small" style="margin:-2px 0 8px">' + (ro ? 'Drag ⋮⋮ or use the arrows to move an account within its group. Every list in Money follows this order.' : 'Tap an account to add or edit its balances.') + '</p>';
+    if (ro) {
+      ACC_CATS.forEach(function (c) {
+        var accs = db.accounts.filter(function (a) { return a.category === c[0]; }); if (!accs.length) return;
+        html += '<div class="bal-grp">' + esc(c[1]) + '</div><div class="list" data-sort-list="acc-' + c[0] + '" data-sort-group="accounts">' + accs.map(function (a, i) {
+          var b = lb[a.id];
+          return '<div class="acc-ro" data-sort-item="' + esc(a.id) + '"><button class="grip" data-drag aria-label="Drag ' + esc(a.name) + '">' + ICON.grip + '</button><span class="ar-name">' + esc(a.name) + '</span><span class="ar-amt money">' + (b ? esc(fmtMoney(b.amount, a.currency)) : '—') + '</span>' +
+            '<button class="mv-btn" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="-1" aria-label="Move ' + esc(a.name) + ' up"' + (i === 0 ? ' disabled' : '') + '>' + ARROW_UP + '</button><button class="mv-btn" data-act="moveAcc" data-id="' + esc(a.id) + '" data-d="1" aria-label="Move ' + esc(a.name) + ' down"' + (i === accs.length - 1 ? ' disabled' : '') + '>' + ARROW_DOWN + '</button></div>';
+        }).join('') + '</div>';
+      });
+    } else {
     html += '<div class="table-wrap"><table class="bal' + (ro ? ' reorder' : '') + '"><thead><tr>' + (ro ? '' : '<th>Record date</th>') + '<th>Account</th><th class="num">Amount, ' + esc(cur) + '</th>' + (ro ? '<th><span class="sr-only">Move</span></th>' : '') + '</tr></thead><tbody>';
     ACC_CATS.forEach(function (c) {
       var accs = db.accounts.filter(function (a) { return a.category === c[0]; }); if (!accs.length) return;
@@ -4624,6 +4639,7 @@
       });
     });
     html += '</tbody></table></div>';
+    }
     var dates = balanceDates().reverse();
     html += section('History', dates.length) + '<div class="list">' + dates.map(function (d) {
       return '<button class="rec" data-act="recordBalances" data-date="' + d + '"><span><strong>' + esc(fmtDate(d, { full: true })) + '</strong><span class="muted small" style="display:block">Tap to edit balances</span></span><span class="amt money">' + esc(fmtMoney(Math.round(balanceTotals(d, cur).net), cur)) + '</span></button>';
@@ -4725,6 +4741,395 @@
       row('asset', '+ Assets value', s.asset, 'main') +
       row('net', 'Net worth', s.net, 'total big') + '</div>';
   }
+
+  /* ================= v1.7: drag to reorder everything, Save on top, smarter assistant ================= */
+  APP_VERSION = '1.7.0';
+
+  /* ---------- generic ordering helpers ---------- */
+  function ensureOrder(arr, cmp, atEnd) {
+    var have = arr.filter(function (x) { return typeof x.order === 'number'; });
+    if (have.length === arr.length) return;
+    if (!have.length) { arr.slice().sort(cmp || function () { return 0; }).forEach(function (x, i) { x.order = i + 1; }); return; }
+    var os = have.map(function (x) { return x.order; }), min = Math.min.apply(null, os), max = Math.max.apply(null, os);
+    var miss = arr.filter(function (x) { return typeof x.order !== 'number'; }).sort(cmp || function () { return 0; });
+    miss.forEach(function (x, i) { x.order = atEnd ? max + 1 + i : min - miss.length + i; });
+  }
+  function inOrder(arr, cmp) { ensureOrder(arr, cmp); return arr.slice().sort(byOrder); }
+  function reorderColl(arr, ids) {
+    var xs = ids.map(function (id) { return byId(arr, id); }).filter(Boolean);
+    var os = xs.map(function (x) { return x.order; }).sort(function (a, b) { return a - b; });
+    for (var i = 1; i < os.length; i++) if (os[i] <= os[i - 1]) os[i] = os[i - 1] + 0.001;
+    xs.forEach(function (x, i) { x.order = os[i]; });
+  }
+  function gripBtn(lbl) { return '<button type="button" class="grip" data-drag aria-label="Drag to reorder ' + esc(lbl) + '">' + ICON.grip + '</button>'; }
+  function sortItem(id, lbl, inner, cls) { return '<div class="sort-item' + (cls ? ' ' + cls : '') + '" data-sort-item="' + esc(id) + '">' + gripBtn(lbl) + '<div class="sort-body">' + inner + '</div></div>'; }
+  function sortList(key, group, inner, cls, extra) { return '<div class="sort-list' + (cls ? ' ' + cls : '') + '" data-sort-list="' + esc(key) + '" data-sort-group="' + group + '"' + (extra || '') + '>' + inner + '</div>'; }
+  function byNewest(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); }
+
+  /* ---------- drag engine: stays in its own list, works in grids, many kinds of entries ---------- */
+  placeItem = function () {
+    var under = document.elementFromPoint(drag.x, drag.y); if (!under) return;
+    var list = under.closest('[data-sort-list]');
+    if (!list || list.dataset.sortGroup !== drag.group) return;
+    if (drag.group !== 'kanban' && list !== drag.from) return;
+    var grid = list.dataset.sortAxis === 'grid';
+    var kids = Array.prototype.filter.call(list.children, function (c) { return c.hasAttribute('data-sort-item') && c !== drag.item; });
+    var before = null;
+    for (var i = 0; i < kids.length; i++) {
+      var r = kids[i].getBoundingClientRect();
+      if (grid ? (drag.y < r.top || (drag.y <= r.bottom && drag.x < r.left + r.width / 2)) : drag.y < r.top + r.height / 2) { before = kids[i]; break; }
+    }
+    if (before) { if (drag.item.nextSibling !== before || drag.item.parentElement !== list) list.insertBefore(drag.item, before); }
+    else if (list.lastElementChild !== drag.item) list.appendChild(drag.item);
+  };
+  function saved() { save(); render(); }
+  function collHandler(get, after) { return function (ids) { reorderColl(get(), ids); if (after) after(); saved(); }; }
+  var SORT_HANDLERS = {
+    projects: collHandler(function () { return db.projects; }),
+    areas: collHandler(function () { return db.areas; }),
+    notes: collHandler(function () { return db.notes; }),
+    bookmarks: collHandler(function () { return db.bookmarks; }),
+    media: collHandler(function () { return db.media; }),
+    habits: collHandler(function () { return db.habits; }),
+    friends: collHandler(function () { return db.friends; }),
+    trips: collHandler(function () { return db.trips; }),
+    purchases: collHandler(function () { return db.purchases; }),
+    accounts: collHandler(function () { return db.accounts; }, function () { sortAccounts(); }),
+    homeLinks: function (ids) { db.settings.homeLinks = ids; saved(); },
+    lifePri: function (ids) { var old = db.lifePriorities.slice(); db.lifePriorities = ids.map(function (i) { return old[+i]; }).filter(function (x) { return x != null; }); saved(); },
+    checklist: function (ids, list) {
+      var tr = byId(db.trips, list.dataset.trip); if (!tr) return;
+      var old = tr.checklist || [];
+      tr.checklist = ids.map(function (id) { return byId(old, id); }).filter(Boolean).concat(old.filter(function (c) { return ids.indexOf(c.id) < 0; }));
+      saved();
+    },
+    safe: function (ids) { reorderColl(Vault.records, ids); Vault.persist().then(render, function (e) { toast('Could not save: ' + e.message); }); render(); },
+    subs: function () { /* the order is read from the form when you save the task */ }
+  };
+  var _endDrag17 = endDrag;
+  endDrag = function (e, cancelled) {
+    if (!drag || (e && e.pointerId !== drag.pid)) return;
+    var h = SORT_HANDLERS[drag.group];
+    if (!h) { _endDrag17(e, cancelled); return; }
+    var d = drag; drag = null;
+    d.ghost.remove(); d.item.classList.remove('drag-placeholder'); d.item.style.opacity = '';
+    document.body.classList.remove('dragging');
+    if (!d.moved || cancelled) { if (cancelled && d.group !== 'subs') render(); return; }
+    dragJustEnded = true; setTimeout(function () { dragJustEnded = false; }, 350);
+    var list = d.item.parentElement;
+    h(Array.prototype.filter.call(list.children, function (c) { return c.hasAttribute('data-sort-item'); }).map(function (c) { return c.dataset.sortItem; }), list);
+  };
+
+  /* ---------- tasks: drag in Paused and in Home's Most important too ---------- */
+  var _taskList17 = taskList;
+  taskList = function (tasks, key, emptyText, opts) {
+    if (key === 'paused' || key === 'home-top') opts = Object.assign({}, opts || {}, { sortable: true });
+    return _taskList17(tasks, key, emptyText, opts);
+  };
+
+  /* ---------- areas and projects ---------- */
+  areasList = function () { ensureOrder(db.areas, null, true); return db.areas.slice().sort(byOrder).map(function (a) { return [a.id, a.name]; }); };
+  screens.areas = function () {
+    var html = head('Areas', 'Every project belongs to one area. Drag ⋮⋮ to reorder.');
+    html += sortList('areas', 'areas', areasList().map(function (a) {
+      var ps = db.projects.filter(function (p) { return p.area === a[0]; });
+      var open = db.tasks.filter(function (t) { return isOpen(t) && taskArea(t) === a[0]; }).length;
+      return sortItem(a[0], a[1], '<button class="area-tile" data-go="area" data-id="' + esc(a[0]) + '"><span class="mark">' + (a[0] === 'personal' ? ICON.person : a[0] === 'business' ? ICON.briefcase : ICON.areas) + '</span><span><h3>' + esc(a[1]) + '</h3><span class="muted small">' + ps.length + ' projects · ' + open + ' open tasks</span></span></button>', 'tile-item');
+    }).join(''), 'area-tiles', ' data-sort-axis="grid"');
+    return html + '<button class="btn ghost block" style="margin-top:12px" data-act="newArea">+ New area</button>';
+  };
+  function projectsSortable(ps, key) { return ps.length ? sortList(key, 'projects', ps.map(function (p) { return sortItem(p.id, p.name, projectCard(p), 'card-item'); }).join('')) : ''; }
+  screens.projects = function () {
+    var f = ui.projFilter;
+    var ps = inOrder(db.projects).filter(function (p) { return f === 'all' || p.area === f; });
+    var html = head('Projects', db.projects.length + ' total', '<button class="btn ghost" data-act="newProject" data-area="' + (f === 'all' ? '' : f) + '">+ New</button>');
+    html += '<div class="seg" role="group" aria-label="Filter by area">' + [['all', 'All']].concat(areasList()).map(function (x) {
+      return '<button data-act="projFilter" data-v="' + esc(x[0]) + '" aria-pressed="' + (f === x[0]) + '">' + esc(x[1]) + '</button>';
+    }).join('') + '</div>';
+    return html + (ps.length ? projectsSortable(ps, 'projects-' + f) : '<div class="empty">No projects here. Tap + New to create one.</div>');
+  };
+  screens.area = function (id) {
+    var a = label(areasList(), id);
+    if (!a) return notFound('This area does not exist.');
+    var ps = inOrder(db.projects).filter(function (p) { return p.area === id; });
+    var loose = db.tasks.filter(function (t) { return isOpen(t) && !t.project && t.area === id && t.list !== 'inbox'; }).sort(byOrder);
+    var notes = inOrder(db.notes, byNewest).filter(function (n) { return n.area === id; });
+    var html = head(a, ps.length + ' projects');
+    html += addTaskBtn({ area: id, list: 'anytime' });
+    html += section('Projects', ps.length, '<button class="link-btn" data-act="newProject" data-area="' + esc(id) + '">+ New project</button>');
+    html += ps.length ? projectsSortable(ps, 'area-' + id) : '<div class="empty">No projects yet.</div>';
+    html += section('Tasks without a project', loose.length) + taskList(loose, 'area-' + id, 'None.');
+    html += section('Notes', notes.length) + (notes.length ? sortList('area-notes-' + id, 'notes', notes.map(function (n) { return sortItem(n.id, n.title || 'Untitled', noteCard(n), 'card-item'); }).join('')) : '<div class="empty">No notes in this area.</div>');
+    if (byId(db.areas, id)) html += '<div class="btn-row" style="margin-top:18px"><button class="btn plain" data-act="editArea" data-id="' + esc(id) + '">Rename area</button><button class="btn danger" data-act="deleteArea" data-id="' + esc(id) + '">Delete area</button></div>';
+    return html;
+  };
+
+  /* ---------- notes: your own order (drag), or recently edited ---------- */
+  var _notes17 = screens.notes;
+  ui.noteSort = readCache('focus.noteSort') || 'mine';
+  actions.noteSort = function (el) { ui.noteSort = el.dataset.v; writeCache('focus.noteSort', ui.noteSort); render(); };
+  screens.notes = function () {
+    var seg = '<div class="seg" role="group" aria-label="Order notes"><button data-act="noteSort" data-v="mine" aria-pressed="' + (ui.noteSort === 'mine') + '">My order</button><button data-act="noteSort" data-v="recent" aria-pressed="' + (ui.noteSort === 'recent') + '">Recently edited</button></div>';
+    var html = _notes17();
+    var at = html.indexOf('<div id="noteResults">');
+    if (ui.noteSort === 'recent' || ui.noteQuery.trim() || at < 0) return at < 0 ? html : html.slice(0, at) + seg + html.slice(at);
+    var all = inOrder(db.notes, byNewest), pinned = all.filter(function (n) { return n.pinned; }), rest = all.filter(function (n) { return !n.pinned; });
+    function grp(name, key, ns) { return ns.length ? section(name, ns.length) + sortList(key, 'notes', ns.map(function (n) { return sortItem(n.id, n.title || 'Untitled', noteCard(n), 'card-item'); }).join('')) : ''; }
+    var body = all.length ? grp('Pinned', 'notes-pinned', pinned) + grp(pinned.length ? 'Notes' : 'All notes', 'notes-all', rest) : '<div class="empty">No notes yet. Tap + Note.</div>';
+    return html.slice(0, at) + seg + '<div id="noteResults">' + body + '</div>';
+  };
+
+  /* ---------- bookmarks, watch · read · listen ---------- */
+  screens.bookmarks = function () {
+    var q = ui.bmQuery.trim().toLowerCase(), tag = ui.bmTag;
+    var tags = []; db.bookmarks.forEach(function (b) { if (b.tag && tags.indexOf(b.tag) < 0) tags.push(b.tag); }); tags.sort();
+    var bs = inOrder(db.bookmarks, byNewest).filter(function (b) { return (!q || (b.title + ' ' + b.url + ' ' + b.tag + ' ' + b.note).toLowerCase().indexOf(q) >= 0) && (!tag || b.tag === tag); });
+    var html = head('Bookmarks', db.bookmarks.length + ' saved links', '<button class="btn ghost" data-act="newBookmark">+ Add</button>');
+    html += '<input class="input search" type="search" placeholder="Search bookmarks" data-input="bmQuery" value="' + esc(ui.bmQuery) + '" aria-label="Search bookmarks">';
+    if (tags.length) html += '<div class="chips">' + [''].concat(tags).map(function (t) { return '<button class="chip-btn" data-act="bmTag" data-v="' + esc(t) + '" aria-pressed="' + (tag === t) + '">' + esc(t || 'All') + '</button>'; }).join('') + '</div>';
+    if (!bs.length) return html + '<div class="empty">' + (db.bookmarks.length ? 'No bookmarks match.' : 'Save links you open often. Tap + Add.') + '</div>';
+    var groups = {}; bs.forEach(function (b) { var g = b.tag || 'Untagged'; (groups[g] = groups[g] || []).push(b); });
+    Object.keys(groups).sort().forEach(function (g) {
+      html += section(g, groups[g].length) + sortList('bm-' + g, 'bookmarks', groups[g].map(function (b) {
+        return sortItem(b.id, b.title || host(b.url), '<div class="bm"><a href="' + esc(b.url) + '" target="_blank" rel="noopener noreferrer"><strong>' + esc(b.title || host(b.url)) + '</strong><span class="muted small">' + esc(host(b.url)) + (b.note ? ' · ' + esc(b.note) : '') + '</span></a><button class="tiny-btn" data-act="editBookmark" data-id="' + esc(b.id) + '">Edit</button></div>');
+      }).join(''), 'list');
+    });
+    return html;
+  };
+  screens.media = function () {
+    var ty = ui.mediaType, st = ui.mediaStatus;
+    var items = inOrder(db.media, byNewest).filter(function (m) { return (!ty || m.type === ty) && m.status === st; });
+    var html = head('Watch · Read · Listen', 'Movies, books, lectures, videos and music to get to.', '<button class="btn ghost" data-act="newMedia">+ Add</button>');
+    html += '<div class="seg" role="group" aria-label="Status">' + MEDIA_STATUS.map(function (s) { return '<button data-act="mediaStatus" data-v="' + esc(s) + '" aria-pressed="' + (s === st) + '">' + esc(s) + '</button>'; }).join('') + '</div>';
+    html += '<div class="chips">' + [''].concat(MEDIA_TYPES).map(function (t) { return '<button class="chip-btn" data-act="mediaType" data-v="' + esc(t) + '" aria-pressed="' + (t === ty) + '">' + esc(t || 'All') + '</button>'; }).join('') + '</div>';
+    if (!items.length) return html + '<div class="empty">Nothing here yet.</div>';
+    return html + sortList('media-' + st + '-' + ty, 'media', items.map(function (m) {
+      return sortItem(m.id, m.title, '<div class="bm"><button class="check" role="checkbox" aria-checked="' + (m.status === 'Done') + '" data-act="mediaDone" data-id="' + esc(m.id) + '" aria-label="Mark ' + esc(m.title) + ' done"><span class="box">' + ICON.tick + '</span></button>' +
+        '<button class="media-body" data-act="editMedia" data-id="' + esc(m.id) + '"><strong>' + esc(m.title) + '</strong><span class="muted small">' + esc(m.type) + (m.by ? ' · ' + esc(m.by) : '') + (m.note ? ' · ' + esc(m.note) : '') + '</span></button>' +
+        (m.link ? '<a class="tiny-btn link-tiny" href="' + esc(m.link) + '" target="_blank" rel="noopener noreferrer">Open</a>' : '') + '</div>');
+    }).join(''), 'list');
+  };
+
+  /* ---------- habits, friends, travel ---------- */
+  var _habits17 = screens.habits;
+  screens.habits = function () {
+    if (!db.habits.length) return _habits17();
+    var collected = [];
+    var html = _habits17().replace(/<div class="card pad habit" data-habit="([^"]+)">[\s\S]*?(?=<div class="card pad habit" data-habit=|$)/g, function (card, id) { collected.push([id, card]); return ''; });
+    ensureOrder(db.habits, null, true);
+    var order = inOrder(db.habits).map(function (h) { return h.id; });
+    collected.sort(function (a, b) { return order.indexOf(a[0]) - order.indexOf(b[0]); });
+    return html + sortList('habits', 'habits', collected.map(function (c) { var h = byId(db.habits, c[0]); return sortItem(c[0], h ? h.name : 'habit', c[1], 'card-item'); }).join(''));
+  };
+  var _friends17 = screens.friends;
+  screens.friends = function () {
+    if (!db.friends.length) return _friends17();
+    var collected = {};
+    var html = _friends17().replace(/<div class="card pad friend" data-friend="([^"]+)">[\s\S]*?(?=<div class="card pad friend" data-friend=|$)/g, function (card, id) { collected[id] = card; return ''; });
+    return html + sortList('friends', 'friends', inOrder(db.friends, function (a, b) { return friendDue(a) - friendDue(b); }).filter(function (f) { return collected[f.id]; }).map(function (f) { return sortItem(f.id, f.name, collected[f.id], 'card-item'); }).join(''));
+  };
+  screens.travel = function () {
+    var t = today(), trips = db.trips;
+    var byStart = function (a, b) { return (a.start || '') < (b.start || '') ? -1 : 1; };
+    ensureOrder(trips, byStart);
+    var upcoming = trips.filter(function (x) { return x.status !== 'Done' && x.start && (x.end || x.start) >= t; }).sort(byOrder);
+    var ideas = trips.filter(function (x) { return x.status !== 'Done' && !x.start; }).sort(byOrder);
+    var past = trips.filter(function (x) { return upcoming.indexOf(x) < 0 && ideas.indexOf(x) < 0; }).sort(byOrder);
+    var html = head('Travel planner', 'Plan trips, dates, budget and a checklist.', '<button class="btn ghost" data-act="newTrip">+ Trip</button>');
+    if (!trips.length) return html + '<div class="empty">No trips yet. Tap + Trip to plan the next one.</div>';
+    function grp(name, key, xs) { return xs.length ? section(name, xs.length) + sortList(key, 'trips', xs.map(function (x) { return sortItem(x.id, x.title, tripCard(x), 'card-item'); }).join('')) : ''; }
+    return html + grp('Upcoming', 'trips-up', upcoming) + grp('Ideas', 'trips-ideas', ideas) + grp('Past', 'trips-past', past);
+  };
+  var _trip17 = screens.trip;
+  screens.trip = function (id) {
+    var html = _trip17(id), i = html.indexOf('data-act="tripItem"');
+    if (i < 0) return html;
+    var ls = html.lastIndexOf('<div class="list">', i);
+    if (ls < 0) return html;
+    html = html.slice(0, ls) + '<div class="list" data-sort-list="cl-' + esc(id) + '" data-sort-group="checklist" data-trip="' + esc(id) + '">' + html.slice(ls + '<div class="list">'.length);
+    return html.replace(/<div class="task( done)?"><span style="width:12px"><\/span>(<button class="check" role="checkbox" aria-checked="(?:true|false)" data-act="tripItem" data-id="[^"]*" data-item="([^"]+)" aria-label="([^"]*)")/g, function (all, dn, btn, item, lbl) {
+      return '<div class="task' + (dn || '') + '" data-sort-item="' + item + '"><button type="button" class="grip" data-drag aria-label="Drag to reorder ' + lbl + '">' + ICON.grip + '</button>' + btn;
+    });
+  };
+
+  /* ---------- major purchases ---------- */
+  var _purchases17 = screens.purchases;
+  screens.purchases = function () {
+    var html = _purchases17(), i = html.indexOf('<button class="item-card" data-act="editPurchase"');
+    if (i < 0) return html;
+    var all = inOrder(db.purchases, function (a, b) { return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]; });
+    function card(p) {
+      var pct = p.amount ? Math.min(100, Math.round((Number(p.saved) || 0) * 100 / p.amount)) : 0;
+      return '<button class="item-card" data-act="editPurchase" data-id="' + esc(p.id) + '"><div class="row between"><h3>' + esc(p.title) + '</h3><strong class="money">' + esc(fmtMoney(p.amount, p.currency)) + '</strong></div><div class="meta">' + priorityChip(p.priority) + '<span class="chip' + (p.status === 'Bought' ? ' good' : '') + '">' + esc(p.status) + '</span>' + (p.date ? '<span>Target ' + esc(fmtDate(p.date, { full: true })) + '</span>' : '') + '</div><div class="bar"><span style="width:' + pct + '%"></span></div><div class="muted small" style="margin-top:6px">Saved ' + esc(fmtMoney(p.saved || 0, p.currency)) + '</div></button>';
+    }
+    function grp(name, key, xs) { return xs.length ? (name ? section(name, xs.length) : '') + sortList(key, 'purchases', xs.map(function (p) { return sortItem(p.id, p.title, card(p), 'card-item'); }).join('')) : ''; }
+    var open = all.filter(function (p) { return p.status !== 'Bought'; }), bought = all.filter(function (p) { return p.status === 'Bought'; });
+    return html.slice(0, i) + grp('', 'pur-open', open) + grp('Bought', 'pur-bought', bought);
+  };
+
+  /* ---------- Safe: drag in the All view ---------- */
+  var _safe17 = screens.safe;
+  screens.safe = function () {
+    if (!Vault.unlocked() || ui.safeView !== 'all') return _safe17();
+    var collected = [], real = safeCard;
+    safeCard = function (r) { collected.push(r); return ''; };
+    var html;
+    try { html = _safe17(); } finally { safeCard = real; }
+    if (!collected.length) return html;
+    ensureOrder(Vault.records, function (a, b) { return a.title.localeCompare(b.title); });
+    collected.sort(byOrder);
+    return html + sortList('safe', 'safe', collected.map(function (r) { return sortItem(r.id, r.title, safeCard(r), 'card-item'); }).join(''));
+  };
+
+  /* ---------- subtasks inside the task form ---------- */
+  subRow = function (s) {
+    return '<div class="sub-row" data-sub data-sort-item="' + uid() + '"><button type="button" class="grip" data-drag aria-label="Drag subtask">' + ICON.grip + '</button><input type="checkbox" aria-label="Done"' + (s.done ? ' checked' : '') + '><input type="text" class="input" value="' + esc(s.title) + '" aria-label="Subtask" placeholder="Subtask"><button type="button" class="tiny-btn" data-act="removeSub" aria-label="Remove subtask">✕</button></div>';
+  };
+  var _taskForm17 = taskForm;
+  taskForm = function (t, ctx) {
+    _taskForm17(t, ctx);
+    var subs = $('#sheet #subs');
+    if (!subs) return;
+    subs.setAttribute('data-sort-list', 'subs'); subs.setAttribute('data-sort-group', 'subs');
+    $all('[data-sub]', subs).forEach(function (row) {
+      if (row.querySelector('.grip')) return;
+      row.setAttribute('data-sort-item', uid());
+      row.insertAdjacentHTML('afterbegin', '<button type="button" class="grip" data-drag aria-label="Drag subtask">' + ICON.grip + '</button>');
+    });
+  };
+
+  /* ---------- the form's main button sits at the top, next to ✕ ---------- */
+  var sheetFormN = 0;
+  var _openSheet17 = openSheet;
+  openSheet = function (title, body) {
+    _openSheet17(title, body);
+    var forms = $all('form', sheetEl).filter(function (f) { return f.querySelector('button[type=submit]'); });
+    if (forms.length !== 1 || forms[0].hasAttribute('data-keep-submit')) return;
+    var f = forms[0], btn = f.querySelector('button[type=submit]'), headEl = $('.sheet-head', sheetEl), closeBtn = headEl && headEl.querySelector('[data-act=closeSheet]');
+    if (!headEl || !closeBtn) return;
+    if (!f.id) f.id = 'sheetForm' + (++sheetFormN);
+    btn.setAttribute('form', f.id);
+    var txt = btn.textContent.trim();
+    btn.textContent = /^save\b/i.test(txt) ? 'Save' : /^add\b/i.test(txt) ? 'Add' : txt.length > 12 ? txt.split(' ')[0] : txt;
+    btn.className = 'btn head-save';
+    headEl.insertBefore(btn, closeBtn);
+  };
+  busy = function (form, on) {
+    var b = form.querySelector('[type=submit]') || (form.id && document.querySelector('[type=submit][form="' + form.id + '"]'));
+    if (b) { b.disabled = on; b.style.opacity = on ? 0.6 : 1; }
+  };
+
+  /* ---------- one-line add sits at the top of the list; new tasks appear first ---------- */
+  var _render17 = render;
+  render = function (rs) {
+    _render17(rs);
+    var qas = $all('#screen > .quick-add[data-slot="list"]'), headEl = $('#screen > .page-head');
+    if (qas.length !== 1 || !headEl) return;
+    var focused = document.activeElement && qas[0].contains(document.activeElement);
+    if (headEl.nextElementSibling !== qas[0]) headEl.insertAdjacentElement('afterend', qas[0]);
+    if (focused) { var inp = qas[0].querySelector('.qa-in'); try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); } }
+  };
+
+  /* ---------- assistant: pick a type with one tap, more plain-language understanding, adds to the screen you're on ---------- */
+  ui.aiKind = 'auto';
+  var AI_KINDS = [['auto', 'Auto'], ['task', 'Task'], ['note', 'Note'], ['expense', 'Expense'], ['income', 'Income'], ['bookmark', 'Link'], ['habit', 'Habit'], ['media', 'Watch/Read']];
+  var _assistantSheet17 = assistantSheet;
+  assistantSheet = function () {
+    var c = addCtx();
+    _assistantSheet17();
+    var form = $('#sheet form[data-form=assistant]'); if (!form) return;
+    $('#sheetTitle').textContent = 'Assistant';
+    var hint = form.querySelector('p.hint');
+    if (hint) hint.innerHTML = 'Type or dictate, one item per line or sentence. Tasks go to <b>' + esc(c.where) + '</b> unless you say otherwise. Try: “call bank tomorrow 10:00 !”, “taxi 1200 руб”, “note: gift ideas”, “pay rent every month on 1.12”, “через 3 дня отправить отчёт #Betterplace”.';
+    form.insertAdjacentHTML('afterbegin', '<div class="ai-kinds" role="group" aria-label="What to add">' + AI_KINDS.map(function (k) {
+      return '<button type="button" class="chip-btn" data-act="aiKind" data-k="' + k[0] + '" aria-pressed="' + (ui.aiKind === k[0]) + '">' + k[1] + '</button>';
+    }).join('') + '</div>');
+    form.dataset.ctx = JSON.stringify(c);
+  };
+  actions.aiKind = function (el) {
+    ui.aiKind = el.dataset.k;
+    $all('#sheet [data-act=aiKind]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.k === ui.aiKind)); });
+    var ta = $('#aiText'); if (ta) { ta.dispatchEvent(new Event('input', { bubbles: true })); ta.focus(); }
+  };
+  var REL = [
+    [/(?:^|\s)(?:через|in)\s+(\d+)\s*(дн[а-яё]*|день|days?|d)(?=\s|$)/i, function (m) { return addDays(today(), +m[1]); }],
+    [/(?:^|\s)(?:через|in)\s+(\d+)\s*(недел[а-яё]*|weeks?|w)(?=\s|$)/i, function (m) { return addDays(today(), 7 * m[1]); }],
+    [/(?:^|\s)(?:через|in)\s+(\d+)\s*(месяц[а-яё]*|months?)(?=\s|$)/i, function (m) { var d = parseYmd(today()); d.setMonth(d.getMonth() + (+m[1])); return ymd(d); }],
+    [/(?:^|\s)(?:на следующей неделе|next week)(?=\s|$)/i, function () { var d = parseYmd(today()); return addDays(today(), ((8 - d.getDay()) % 7) || 7); }],
+    [/(?:^|\s)(?:на выходных|в выходные|this weekend|weekend)(?=\s|$)/i, function () { var d = parseYmd(today()); return addDays(today(), (6 - d.getDay() + 7) % 7); }]
+  ];
+  var _parseItem17 = parseItem;
+  parseItem = function (raw) {
+    var line = raw.trim();
+    var kind = ui.aiKind;
+    if (kind && kind !== 'auto' && kind !== 'task') {
+      var pre = { note: 'note: ', expense: 'expense ', income: 'income ', bookmark: 'bookmark ', habit: 'habit: ', media: 'watch: ' }[kind];
+      var forced = _parseItem17(pre + line);
+      if (kind === 'media') { forced.kind = 'media'; forced.f = { text: line }; }
+      return forced;
+    }
+    if (kind === 'auto' && /^\s*([\d\s]+(?:[.,]\d+)?)\s*(k|к|тыс\S*)?\s*(₽|руб\S*|р\.|\$|usd|долл\S*|€|eur|евро|idr|rp|рупи\S*)\s+\S/i.test(line) && !/(завтра|сегодня|tomorrow|today|\d{1,2}:\d{2})/i.test(line)) return _parseItem17('expense ' + line);
+    if (kind === 'auto' && /^\s*\D[^\d]{0,40}\s([\d\s]+(?:[.,]\d+)?)\s*(k|к|тыс\S*)?\s*(₽|руб\S*|р\.|\$|usd|долл\S*|€|eur|евро|idr|rp|рупи\S*)\s*$/i.test(line) && !/(завтра|сегодня|tomorrow|today|\d{1,2}:\d{2}|pay|оплатить|заплатить)/i.test(line)) return _parseItem17('expense ' + line);
+    var it = _parseItem17(raw);
+    if (it.kind !== 'task' || !it.f.title) return it;
+    var s = ' ' + it.f.title + ' ', m, f = it.f;
+    REL.forEach(function (r) { if (!f.date && (m = s.match(r[0]))) { f.date = r[1](m); s = s.replace(m[0], ' '); } });
+    var rep = [[/(?:^|\s)(каждый день|ежедневно|every day|daily)(?=\s|$)/i, 'daily'], [/(?:^|\s)(каждую неделю|еженедельно|every week|weekly)(?=\s|$)/i, 'weekly'], [/(?:^|\s)(каждый месяц|ежемесячно|every month|monthly)(?=\s|$)/i, 'monthly'], [/(?:^|\s)(каждый год|ежегодно|every year|yearly)(?=\s|$)/i, 'yearly']];
+    rep.forEach(function (r) { if ((m = s.match(r[0]))) { f.repeat = r[1]; s = s.replace(m[0], ' '); } });
+    if ((m = s.match(/(?:^|\s)(когда-нибудь|когда нибудь|потом|someday|maybe)(?=\s|$)/i))) { f.list = 'someday'; s = s.replace(m[0], ' '); }
+    if ((m = s.match(/(?:^|\s)(жду|ждать|ожидаю|follow[- ]?up|waiting)(?=\s|$)/i))) { f.status = 'waiting'; s = s.replace(m[0], ' '); }
+    if ((m = s.match(/(?:^|\s)(дедлайн|deadline|крайний срок)(?=\s|$)/i))) { f.deadline = true; s = s.replace(m[0], ' '); }
+    if ((m = s.match(/(?:^|\s)(важно|high)(?=\s|$)/i)) && !f.priority) { f.priority = 'high'; s = s.replace(m[0], ' '); }
+    var title = s.replace(/\s+/g, ' ').trim();
+    f.title = title ? title.charAt(0).toUpperCase() + title.slice(1) : f.title;
+    return it;
+  };
+  var _describe17 = describe;
+  describe = function (it) {
+    var h = _describe17(it), f = it.f || {}, extra = [];
+    if (it.kind === 'task') {
+      if (f.repeat) extra.push(label(REPEATS, f.repeat));
+      if (f.list === 'someday') extra.push('Someday');
+      if (f.status === 'waiting') extra.push('Follow-up');
+      if (f.deadline) extra.push('Deadline');
+      if (f.priority === 'high') extra.push('High');
+    }
+    return extra.length ? h + ' · ' + esc(extra.join(' · ')) : h;
+  };
+  var _submitAssistant17 = submitters.assistant;
+  submitters.assistant = function (form) {
+    var c = {}; try { c = JSON.parse(form.dataset.ctx || '{}'); } catch (e) { c = {}; }
+    var items = aiItems(form.elements.text.value), taskItems = items.filter(function (it) { return it.kind === 'task' && it.f.title; });
+    var snapshot = JSON.stringify(db), before = {};
+    db.tasks.forEach(function (t) { before[t.id] = 1; });
+    _submitAssistant17(form);
+    var fresh = db.tasks.filter(function (t) { return !before[t.id]; });
+    fresh.forEach(function (t, i) {
+      var f = (taskItems[i] || {}).f || {};
+      if (f.list) t.list = f.list;
+      else if (t.list === 'inbox' && c.list && c.list !== 'inbox') t.list = c.list;
+      if (!t.date && c.date && !f.list) t.date = c.date;
+      if (f.date) t.date = f.date;
+      if (t.date && t.list === 'inbox' && c.list !== 'inbox') t.list = 'anytime';
+      if (f.repeat) t.repeat = f.repeat;
+      if (f.priority) t.priority = f.priority; else if (c.priority && t.priority === 'medium') t.priority = c.priority;
+      if (!t.project && c.project) { t.project = c.project; t.area = c.area || t.area; }
+      if (!t.area && c.area) t.area = c.area;
+      if (!t.delegatedTo && c.delegatedTo) t.delegatedTo = c.delegatedTo;
+      if (f.deadline || c.deadline) t.deadline = !!t.date;
+      var st = f.status || (c.status && c.status !== 'todo' ? c.status : '');
+      if (st) setTaskStatus(t, st);
+    });
+    save(); render();
+    var n = items.length;
+    if (n) toast('Added ' + n + ' item' + (n > 1 ? 's' : ''), 'Undo', function () { db = normalize(JSON.parse(snapshot)); save(); render(); });
+  };
+
+  function homeLinks() {
+    var saved = (db.settings.homeLinks || []).filter(function (r) { return HOME_LINKS.indexOf(r) >= 0; });
+    return saved.concat(HOME_LINKS.filter(function (r) { return saved.indexOf(r) < 0; }));
+  }
+  actions.editShortcuts = function () { ui.editShortcuts = !ui.editShortcuts; render(); };
 
   /* ================= boot ================= */
   function boot() {
