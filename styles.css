@@ -827,3 +827,28 @@ body { font-size: 15px; line-height: 1.35; }
 .note-editor textarea.body-in { font-size: 16px; }
 
 .sheet .actions:empty, .sheet .btn-row:empty { display: none; }
+
+/* ================= v1.7.1: compact Safe cards ================= */
+.card.safe-c { padding: 8px 10px 6px 12px; margin-bottom: 0; }
+.sort-item.card-item + .sort-item.card-item .safe-c { margin-top: 0; }
+.sc-top { display: flex; align-items: center; gap: 6px; min-height: 32px; }
+.sc-name { flex: 1; min-width: 0; border: 0; background: none; padding: 0; text-align: left; font: inherit; font-size: 15px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-type, .sc-tag { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.sc-tag { color: var(--accent); }
+.sc-edit { border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; padding: 6px 2px 6px 8px; }
+.sc-fields { display: flex; flex-direction: column; }
+.sc-f { display: flex; align-items: center; gap: 6px; min-height: 30px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.sc-l { flex: 0 0 52px; color: var(--muted); font-size: 12px; }
+.sc-v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); text-decoration: none; }
+a.sc-v { color: var(--accent); }
+.sc-v.mono { font-variant-numeric: tabular-nums; letter-spacing: .03em; }
+.sc-v.wrap { white-space: pre-wrap; }
+.sc-btn { flex: 0 0 32px; width: 32px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.sc-btn svg { width: 17px; height: 17px; }
+.sc-btn[aria-pressed="true"] { color: var(--accent); }
+.widget .wl svg { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }
+button.widget { text-align: left; font: inherit; color: inherit; }
+.ai-bar2 { display: flex; gap: 6px; align-items: stretch; }
+.ai-bar2 .ai-bar { flex: 1; min-width: 0; margin: 0; }
+.ai-mic { flex: 0 0 46px; border: 0; border-radius: 14px; background: var(--accent); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
+.ai-mic svg { width: 20px; height: 20px; }

@@ -5131,6 +5131,250 @@
   }
   actions.editShortcuts = function () { ui.editShortcuts = !ui.editShortcuts; render(); };
 
+  /* ================= v1.7.1: Monday weeks, location follows you, edits save themselves, compact Safe, assistant files anything ================= */
+  APP_VERSION = '1.7.1';
+
+  /* ---------- weeks start on Monday: "Next week" means next Monday ---------- */
+  function nextMonday(from) { var d = parseYmd(from || today()); return addDays(from || today(), ((8 - d.getDay()) % 7) || 7); }
+  var _formDate171 = actions.formDate;
+  actions.formDate = function (el) {
+    if (el.dataset.n === '7') { var form = el.closest('form'); form.elements.date.value = nextMonday(); form.elements.date.dispatchEvent(new Event('change', { bubbles: true })); return; }
+    _formDate171(el);
+  };
+
+  /* ---------- location: trust the phone's time zone when the saved position is clearly old ---------- */
+  var TZ_CITIES = {
+    'Asia/Makassar': ['Bali', -8.65, 115.22], 'Asia/Jakarta': ['Jakarta', -6.2, 106.85], 'Asia/Singapore': ['Singapore', 1.29, 103.85],
+    'Asia/Kuala_Lumpur': ['Kuala Lumpur', 3.14, 101.69], 'Asia/Bangkok': ['Bangkok', 13.75, 100.5], 'Asia/Ho_Chi_Minh': ['Ho Chi Minh City', 10.78, 106.7],
+    'Asia/Dubai': ['Dubai', 25.2, 55.27], 'Asia/Tokyo': ['Tokyo', 35.68, 139.69], 'Europe/Moscow': ['Moscow', 55.75, 37.62], 'Europe/Istanbul': ['Istanbul', 41.01, 28.98],
+    'Europe/London': ['London', 51.5, -0.12], 'Europe/Berlin': ['Berlin', 52.52, 13.4], 'Europe/Paris': ['Paris', 48.86, 2.35],
+    'America/New_York': ['New York', 40.71, -74.0], 'America/Chicago': ['Chicago', 41.88, -87.63], 'America/Los_Angeles': ['Los Angeles', 34.05, -118.24],
+    'Australia/Sydney': ['Sydney', -33.87, 151.21], 'Pacific/Grenada': ['Grenada', 12.05, -61.75], 'America/Grenada': ['Grenada', 12.05, -61.75]
+  };
+  function kmBetween(a, b) {
+    var R = 6371, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLon = (b[1] - a[1]) * r;
+    var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+  function tzCity() { try { return TZ_CITIES[Intl.DateTimeFormat().resolvedOptions().timeZone] || null; } catch (e) { return null; } }
+  function placeName(g) {
+    var best = null, bd = 1e9;
+    Object.keys(TZ_CITIES).forEach(function (k) { var c = TZ_CITIES[k], d = kmBetween([g.lat, g.lon], [c[1], c[2]]); if (d < bd) { bd = d; best = c[0]; } });
+    return bd < 200 ? best : 'Here';
+  }
+  function useTzCity(c) {
+    writeCache('focus.geo', { lat: c[1], lon: c[2], t: Date.now(), approx: true });
+    Promise.all([refreshWeather(true).catch(function () {}), refreshSun(true).catch(function () {})]).then(function () { if (ui.route.name === 'home' && !sheetOpen()) render(); });
+  }
+  function checkLocation() {
+    var g = readCache('focus.geo'), c = tzCity();
+    if (!c) return;
+    if (!g) { useTzCity(c); return; }
+    if (kmBetween([g.lat, g.lon], [c[1], c[2]]) > 1500) useTzCity(c);
+  }
+  var _widgetsHtml171 = widgetsHtml;
+  widgetsHtml = function () {
+    var g = readCache('focus.geo');
+    var html = _widgetsHtml171();
+    if (!g) return html;
+    var name = placeName(g);
+    return html.replace('<div class="widget"><span class="wl">Here</span>', '<button class="widget" data-act="enableGeo" aria-label="Weather in ' + esc(name) + ', tap to refresh your location"><span class="wl">' + ICON.pin + esc(name) + '</span>')
+      .replace(/(<span class="wchg" id="wCond">[^<]*<\/span>)<\/div>/, '$1</button>')
+      .replace('<span class="wv">Here ↗</span>', '<span class="wv">' + esc(name) + ' ↗</span>');
+  };
+  var _updateWidgets171 = updateWidgets;
+  updateWidgets = function () { if (ui.route.name === 'home') checkLocation(); _updateWidgets171(); };
+  checkLocation();
+
+  /* ---------- edits save themselves when you close a form ---------- */
+  var NO_AUTOSAVE = /^(assistant|changePin|cloudAuth|cloudCode|lockPin|newPassword|safeLegacy|safeSetup|safeUnlock|voice)$/;
+  function markDirty(e) { var f = e.target && e.target.closest && e.target.closest('form'); if (f && sheetEl && sheetEl.contains(f)) f.dataset.dirty = '1'; }
+  document.addEventListener('input', markDirty, true);
+  document.addEventListener('change', markDirty, true);
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('#sheet form [data-act]'); if (b && !/closeSheet|dictate/.test(b.dataset.act)) b.closest('form').dataset.dirty = '1'; }, true);
+  document.addEventListener('submit', function (e) { if (e.target && e.target.dataset) delete e.target.dataset.dirty; }, true);
+  var autoSaving = false;
+  var _closeSheet171 = closeSheet;
+  closeSheet = function (silent) {
+    if (!silent && !autoSaving && sheetOpen()) {
+      var f = $('#sheet form[data-dirty="1"]');
+      if (f && submitters[f.dataset.form] && !NO_AUTOSAVE.test(f.dataset.form)) {
+        delete f.dataset.dirty;
+        var emptyRequired = $all('[required]', f).some(function (x) { return !String(x.value || '').trim(); });
+        if (!emptyRequired) {
+          autoSaving = true;
+          try { submitters[f.dataset.form](f); } finally { autoSaving = false; }
+          if (sheetOpen()) return;
+          return;
+        }
+      }
+    }
+    _closeSheet171(silent);
+  };
+
+  /* ---------- Safe: compact cards — name, link, login, pass ---------- */
+  var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/></svg>';
+  var CARD_KEYS = { 'Login': ['link', 'login', 'secret'], 'Address': ['address', 'phone'], 'Document': ['number', 'expires'], 'Bank card': ['cardNumber', 'cardExp', 'cvv'], 'Bank account': ['bank', 'accountNumber', 'swift'], 'Safenote': ['note'] };
+  safeCard = function (r) {
+    var shown = !!ui.revealed[r.id], fields = SAFE_FIELDS[r.type] || SAFE_FIELDS.Safenote, keys = CARD_KEYS[r.type] || ['note'];
+    var lbls = {}; fields.forEach(function (f) { lbls[f[0]] = f[1].replace(' (MM/YY)', '').replace('Expiration date', 'Expires'); });
+    var hasSecret = keys.some(function (k) { return SECRET_FIELDS.indexOf(k) >= 0 && r[k]; });
+    var rows = keys.filter(function (k) { return r[k]; }).map(function (k) {
+      var v = r[k], secret = SECRET_FIELDS.indexOf(k) >= 0, val;
+      if (k === 'link') val = '<a class="sc-v" href="' + esc(normUrl(v)) + '" target="_blank" rel="noopener noreferrer">' + esc(host(normUrl(v)) || v) + ' ↗</a>';
+      else if (k === 'expires') val = '<span class="sc-v">' + esc(fmtDate(v, { full: true })) + '</span>';
+      else val = '<span class="sc-v' + (secret ? ' mono' : '') + (k === 'note' || k === 'address' ? ' wrap' : '') + '">' + esc(secret && !shown ? maskVal(k, v) : v) + '</span>';
+      var copy = k !== 'link' && k !== 'note' && k !== 'expires' && k !== 'address' ? '<button class="sc-btn" data-act="safeCopy" data-id="' + esc(r.id) + '" data-f="' + k + '" aria-label="Copy ' + esc(lbls[k] || k) + '">' + COPY_ICON + '</button>' : '';
+      var eye = secret && (k === 'secret' || k === 'cardNumber' || k === 'accountNumber' || k === 'number') ? '<button class="sc-btn" data-act="safeReveal" data-id="' + esc(r.id) + '" aria-pressed="' + shown + '" aria-label="' + (shown ? 'Hide' : 'Show') + '">' + ICON.eye + '</button>' : '';
+      return '<div class="sc-f"><span class="sc-l">' + esc(lbls[k] || k) + '</span>' + val + eye + copy + '</div>';
+    }).join('');
+    var exp = r.type === 'Document' ? expiryChip(r.expires) : r.type === 'Bank card' ? expiryChip(cardExpDate(r.cardExp)) : '';
+    var tags = (r.tags || []).map(function (t) { return '<span class="sc-tag">#' + esc(t) + '</span>'; }).join('');
+    return '<div class="card safe-c" data-safe="' + esc(r.id) + '"><div class="sc-top"><button class="sc-name" data-act="editSafe" data-id="' + esc(r.id) + '">' + esc(r.title) + '</button>' +
+      (r.type !== 'Login' ? '<span class="sc-type">' + esc(r.type) + '</span>' : '') + exp + tags + (r.photos && r.photos.length ? '<span class="sc-type">🖼 ' + r.photos.length + '</span>' : '') +
+      (hasSecret && keys.indexOf('secret') < 0 && keys.indexOf('cardNumber') < 0 ? '' : '') + '<button class="sc-edit" data-act="editSafe" data-id="' + esc(r.id) + '">Edit</button></div>' +
+      (rows ? '<div class="sc-fields">' + rows + '</div>' : '') +
+      (r.photos && r.photos.length ? '<div class="thumbs" style="margin-top:8px" data-safe-thumbs="' + esc(r.id) + '"></div>' : '') + '</div>';
+  };
+
+  /* ---------- assistant: one box for anything — it decides where it goes and tags it ---------- */
+  var EXP_MAP = [
+    [/такси|taxi|grab|gojek|uber|бензин|топлив|fuel|petrol|gas station|парковк|parking|байк|bike rent|scooter|самокат|метро|metro|автобус|bus|машин[аеу]? ремонт|car service/i, 'Transport'],
+    [/аренд|rent\b|вилл|villa|квартир|apartment|ипотек|mortgage|ремонт|renovation|мебел|furniture/i, 'Housing'],
+    [/электрич|electric|свет\b|интернет|internet|wi-?fi|вода|water bill|газ\b|телефон|phone bill|мобильн|связь|utilities|коммунал/i, 'Utilities'],
+    [/аптек|pharmacy|врач|doctor|клиник|clinic|больниц|hospital|лекарств|medicine|анализ|стоматолог|dentist|страховк|insurance/i, 'Health'],
+    [/курс|course|школ|school|учеб|обучени|tuition|урок|lesson|книг|book/i, 'Education'],
+    [/отел|hotel|билет|ticket|перел[её]т|flight|airbnb|booking|виза|visa|тур\b|tour/i, 'Travel'],
+    [/реклам|ads|хостинг|hosting|домен|domain|сервер|server|подписк|subscription|saas|бухгалтер|accountant|юрист|lawyer|налог|tax|офис|office|зарплат[аы] сотрудник|payroll/i, 'Business'],
+    [/еда|food|продукт|groceries|супермаркет|market|кафе|cafe|ресторан|restaurant|обед|lunch|ужин|dinner|завтрак|breakfast|кофе|coffee|одежд|clothes|подар|gift|кино|cinema|бар\b|bar\b|спорт|gym|фитнес|детск|kids|школьн/i, 'Family living']
+  ];
+  var INC_MAP = [
+    [/зарплат|salary|оклад|аванс/i, 'Salary'], [/аренд|rent|airbnb|вилл|villa|жильц|tenant/i, 'Rental'],
+    [/дивиденд|dividend|процент|interest|акци|stock|крипт|crypto|инвест|invest/i, 'Investments'],
+    [/клиент|client|проект|project|инвойс|invoice|комисси|commission|бизнес|business|продаж|sale/i, 'Business']
+  ];
+  function mapCat(text, map) { for (var i = 0; i < map.length; i++) if (map[i][0].test(text)) return map[i][1]; return 'Other'; }
+  var MEDIA_HINT = /(фильм|кино|сериал|movie|film|series|tv show|книг[ауие]?|book|подкаст|podcast|альбом|album|песн[юяи]|song|музык|music|лекци[яю]|lecture|youtube|ютуб)/i;
+  var _parseItem171 = parseItem;
+  parseItem = function (raw) {
+    var line = raw.trim(), low = line.toLowerCase(), m;
+    if (ui.aiKind === 'auto' || !ui.aiKind) {
+      if ((m = line.match(/^\s*(?:(?:добавь|add)\s+)?(?:друг[аи]?|friend)\s*[:\-]?\s+(.+)$/i))) return { kind: 'friend', f: { name: m[1].replace(/\s+[+\d][\d\s()+-]{6,}.*/, '').trim(), contact: (m[1].match(/[+\d][\d\s()+-]{6,}|\S+@\S+/) || [''])[0].trim() } };
+      if ((m = line.match(/^\s*(?:поездка|путешествие|trip|travel|слетать|полететь|поехать|съездить)\s*(?:в|во|на|to)?\s+(.+)$/i))) { var dd = takeDate(' ' + m[1] + ' '); return { kind: 'trip', f: { title: (m[1].charAt(0).toUpperCase() + m[1].slice(1)).replace(/\s+(завтра|сегодня|tomorrow|today)\b.*$/i, '').trim(), destination: dd.s.replace(/\s+/g, ' ').trim(), start: dd.date } }; }
+      if ((m = line.match(/^\s*(?:хочу купить|накопить на|коплю на|крупная покупка|plan to buy|save for|big purchase)\s*[:\-]?\s+(.+)$/i))) {
+        var pm = m[1].match(/([\d\s]+(?:[.,]\d+)?)\s*(k|к|тыс\S*)?\s*(₽|руб\S*|\$|usd|долл\S*|€|eur|евро|idr|rp)?/i), amt = 0, cur = db.settings.currency;
+        if (pm && /\d/.test(pm[1])) { amt = parseFloat(pm[1].replace(/\s/g, '').replace(',', '.')) * (pm[2] ? 1000 : 1); CUR_WORDS.forEach(function (c) { if (c[0].test(m[1])) cur = c[1]; }); }
+        return { kind: 'purchase', f: { title: m[1].replace(pm && /\d/.test(pm[1]) ? pm[0] : '', ' ').replace(/\s+(за|for)\s*$/i, '').replace(/\s+/g, ' ').trim(), amount: amt, currency: cur } };
+      }
+      if (/(пароль|password|passcode|pin-?код|логин|login)\s*[:\-]?\s*\S/i.test(line) && !/^\s*(задача|task|todo)(?=[\s:,.!-]|$)/i.test(line)) {
+        var lg = line.match(/(?:логин|login|user(?:name)?|email|почта)\s*[:\-]?\s*(\S+)/i), pw = line.match(/(?:пароль|password|pass|pin-?код)\s*[:\-]?\s*(\S+)/i), url = line.match(/https?:\/\/\S+|\b[\w-]+\.(?:com|ru|id|net|org|io|app|co)\S*/i);
+        var ttl = line.replace(lg ? lg[0] : '', ' ').replace(pw ? pw[0] : '', ' ').replace(url ? url[0] : '', ' ').replace(/\s+/g, ' ').trim() || (url ? host(normUrl(url[0])) : 'Login');
+        return { kind: 'safe', f: { title: ttl.charAt(0).toUpperCase() + ttl.slice(1), login: lg ? lg[1] : '', secret: pw ? pw[1] : '', link: url ? url[0] : '' } };
+      }
+      if ((m = line.match(/^\s*(?:остаток|баланс|balance)\s+(?:на\s+|in\s+|on\s+)?(.+?)\s+(-?[\d\s]+(?:[.,]\d+)?)\s*(k|к|тыс\S*)?\s*(₽|руб\S*|\$|usd|€|eur|idr|rp)?\s*$/i))) {
+        var acc = null, q = m[1].toLowerCase();
+        db.accounts.forEach(function (a) { if (!acc && (a.name.toLowerCase().indexOf(q) >= 0 || q.indexOf(a.name.toLowerCase()) >= 0)) acc = a; });
+        return { kind: 'balance', f: { query: m[1], account: acc ? acc.id : '', amount: parseFloat(m[2].replace(/\s/g, '').replace(',', '.')) * (m[3] ? 1000 : 1) } };
+      }
+      if (/^\s*(день был|сегодня был|today was|day was|настроение|mood)(?=[\s:,.!-]|$)/i.test(line)) {
+        var md = /отличн|прекрасн|супер|great|amazing|awesome/i.test(line) ? 5 : /хорош|good|нормальн[оы]й? хорош|приятн|nice/i.test(line) ? 4 : /ужасн|awful|terrible|кошмар/i.test(line) ? 1 : /плох|bad|тяжел|hard|груст|sad/i.test(line) ? 2 : 3;
+        return { kind: 'journal', f: { mood: md, text: line } };
+      }
+      if (/^\s*(иде[яи]|idea|мысль|thought)(?=[\s:,.!-]|$)/i.test(line)) return { kind: 'note', f: { text: line.replace(/^\s*(иде[яи]|idea|мысль|thought)\s*[:\-]?\s*/i, '').trim() || line } };
+      if (/https?:\/\//i.test(line) && /(youtube\.com|youtu\.be|kinopoisk|imdb|netflix|spotify|music\.apple|goodreads|litres)/i.test(line)) {
+        var u2 = line.match(/https?:\/\/\S+/)[0];
+        return { kind: 'media', f: { text: line.replace(u2, '').trim() || host(u2), link: u2 } };
+      }
+      if (MEDIA_HINT.test(line) && /^\s*(посмотреть|прочитать|послушать|watch|read|listen|фильм|кино|сериал|movie|film|series|книга|book|подкаст|podcast|альбом|album)(?=[\s:,.!-]|$)/i.test(line)) {
+        return { kind: 'media', f: { text: line.replace(/^\s*(посмотреть|прочитать|послушать|watch|read|listen|фильм|кино|сериал|movie|film|series|книга|book|подкаст|podcast|альбом|album)\s*[:\-]?\s*/i, '').trim() || line, typeHint: line } };
+      }
+      if (/^\s*(потратил[аи]?|заплатил[аи]?|spent|paid)\s/i.test(line) && /\d/.test(line)) return _parseItem171('expense ' + line.replace(/^\s*\S+\s*/, ''));
+      if (/^\s*(получил[аи]?|пришл[аои]|заработал[аи]?|earned|received|got paid)\s/i.test(line) && /\d/.test(line)) return _parseItem171('income ' + line.replace(/^\s*\S+\s*/, ''));
+    }
+    var it = _parseItem171(raw);
+    if ((it.kind === 'expense' || it.kind === 'income') && it.f) {
+      var words = it.f.category && it.f.category !== 'Other' ? it.f.category : '';
+      it.f.note = words;
+      it.f.category = mapCat(line, it.kind === 'income' ? INC_MAP : EXP_MAP);
+      var tag = line.match(/#([\wА-Яа-яЁё-]+)/); if (tag) { var cats = it.kind === 'income' ? INCOME_CATS : EXPENSE_CATS, hit = cats.filter(function (c) { return c.toLowerCase() === tag[1].toLowerCase(); })[0]; if (hit) it.f.category = hit; it.f.note = it.f.note.replace('#' + tag[1], '').trim(); }
+    }
+    if (it.kind === 'bookmark' && it.f) { var bt = line.match(/#([\wА-Яа-яЁё-]+)/); if (bt) { it.f.tag = bt[1]; it.f.title = (it.f.title || '').replace('#' + bt[1], '').trim(); } }
+    if (it.kind === 'note' && it.f) { var nt = line.match(/#([\wА-Яа-яЁё-]+)/); if (nt) { var np = db.projects.filter(function (p) { return p.name.toLowerCase().replace(/\s+/g, '') === nt[1].toLowerCase(); })[0], na = db.areas.filter(function (a) { return a.name.toLowerCase() === nt[1].toLowerCase(); })[0]; if (np) it.f.project = np.id; else if (na) it.f.area = na.id; if (np || na) it.f.text = it.f.text.replace('#' + nt[1], '').trim(); } }
+    if (it.kind === 'task' && it.f && it.f.title && !it.f.project && !it.f.area) {
+      db.projects.forEach(function (p) {
+        if (it.f.project || p.name.length < 4 || p.status === 'completed') return;
+        var re = new RegExp('(^|\\s)' + p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-]?(\\s|$)', 'i');
+        if (re.test(' ' + it.f.title + ' ')) { it.f.project = p.id; var t2 = it.f.title.replace(new RegExp(p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-]?\\s*', 'i'), '').trim(); if (t2) it.f.title = t2.charAt(0).toUpperCase() + t2.slice(1); }
+      });
+    }
+    return it;
+  };
+  var KIND_NAMES = { friend: 'Friend', trip: 'Trip', purchase: 'Purchase', safe: 'Safe', balance: 'Balance', journal: 'Journal' };
+  var _describe171 = describe;
+  describe = function (it) {
+    var f = it.f || {};
+    if (KIND_NAMES[it.kind]) {
+      var bits = [];
+      if (it.kind === 'friend') bits.push(esc(f.name), esc(f.contact || ''));
+      if (it.kind === 'trip') bits.push(esc(f.title), f.start ? esc(fmtDate(f.start)) : '');
+      if (it.kind === 'purchase') bits.push(esc(f.title), f.amount ? esc(fmtMoney(f.amount, f.currency)) : '');
+      if (it.kind === 'safe') bits.push(esc(f.title), f.login ? esc(f.login) : '', f.secret ? '••••' : '', Vault.unlocked() ? '' : 'unlock Safe first');
+      if (it.kind === 'balance') { var a = byId(db.accounts, f.account); bits.push(a ? esc(a.name) + ' → ' + esc(fmtMoney(f.amount, a.currency)) : 'No account matches “' + esc(f.query) + '”'); }
+      if (it.kind === 'journal') bits.push(esc(MOODS[f.mood - 1][1]) + ' day');
+      return '<span class="chip accent">' + KIND_NAMES[it.kind] + '</span> ' + bits.filter(Boolean).join(' · ');
+    }
+    var h = _describe171(it);
+    if ((it.kind === 'expense' || it.kind === 'income') && f.note) h = h.replace(esc(f.category), esc(f.category) + ' · ' + esc(f.note));
+    if (it.kind === 'bookmark' && f.tag) h += ' · #' + esc(f.tag);
+    if (it.kind === 'media' && f.link) h += ' · ' + esc(host(f.link));
+    if ((it.kind === 'note') && (f.project || f.area)) h += ' · ' + esc(f.project ? (project(f.project) || {}).name : label(areasList(), f.area));
+    return h;
+  };
+  var _submitAssistant171 = submitters.assistant;
+  submitters.assistant = function (form) {
+    var items = aiItems(form.elements.text.value), extra = 0, vaultChanged = false, skipped = [];
+    var mediaBefore = db.media.length, notesBefore = db.notes.length, finBefore = db.finance.length, bmBefore = db.bookmarks.length;
+    _submitAssistant171(form);
+    items.forEach(function (it) {
+      var f = it.f || {};
+      if (it.kind === 'friend' && f.name) { db.friends.push({ id: 'fr_' + uid(), name: f.name, contact: f.contact || '', cadence: 30, last: '', birthday: '', notes: '', createdAt: Date.now() }); extra++; }
+      else if (it.kind === 'trip' && f.title) { db.trips.push({ id: 'tr_' + uid(), title: f.title, destination: f.destination || '', start: f.start || '', end: '', status: f.start ? 'Planning' : 'Idea', budget: '', currency: db.settings.currency, notes: '', checklist: [], createdAt: Date.now() }); extra++; }
+      else if (it.kind === 'purchase' && f.title) { db.purchases.push({ id: 'pu_' + uid(), title: f.title, amount: f.amount || 0, currency: f.currency, saved: 0, priority: 'medium', status: 'Planned', date: '', note: '', createdAt: Date.now() }); extra++; }
+      else if (it.kind === 'balance' && f.account) { var a = byId(db.accounts, f.account); putBalance(a.id, today(), signedFor(a.category, f.amount)); extra++; }
+      else if (it.kind === 'journal') { journalSave(today(), f.mood, f.text); extra++; }
+      else if (it.kind === 'safe') {
+        if (Vault.unlocked()) { Vault.records.push({ id: 'sr_' + uid(), type: 'Login', title: f.title, link: f.link || '', login: f.login || '', secret: f.secret || '', note: '', tags: [], photos: [] }); vaultChanged = true; extra++; }
+        else skipped.push(f.title);
+      }
+    });
+    items.forEach(function (it, i) {
+      if (it.kind === 'media' && it.f && (it.f.link || it.f.typeHint)) {
+        var m = db.media.slice(mediaBefore).filter(function (x) { return x.title === it.f.text; })[0];
+        if (m) { if (it.f.link) m.link = it.f.link; var th = it.f.typeHint || it.f.text; m.type = /книг|book|прочитать|read/i.test(th) ? 'Book' : /подкаст|podcast|музык|music|альбом|album|песн|song|послушать|listen/i.test(th) ? (MEDIA_TYPES.indexOf('Podcast') >= 0 && /подкаст|podcast/i.test(th) ? 'Podcast' : 'Music') : /лекци|lecture/i.test(th) && MEDIA_TYPES.indexOf('Lecture') >= 0 ? 'Lecture' : /youtube|ютуб/i.test(th) && MEDIA_TYPES.indexOf('YouTube') >= 0 ? 'YouTube' : /сериал|series/i.test(th) && MEDIA_TYPES.indexOf('Series') >= 0 ? 'Series' : m.type; }
+      }
+    });
+    var fins = db.finance.slice(finBefore), fi = 0;
+    items.forEach(function (it) { if ((it.kind === 'expense' || it.kind === 'income') && it.f && it.f.amount > 0) { var r = fins[fi++]; if (r && it.f.note) r.note = it.f.note; } });
+    var notes = db.notes.slice(notesBefore), ni = 0;
+    items.forEach(function (it) { if (it.kind === 'note' && it.f && it.f.text) { var n = notes[ni++]; if (n) { if (it.f.project) { n.project = it.f.project; n.area = (project(it.f.project) || {}).area || ''; } else if (it.f.area) n.area = it.f.area; } } });
+    var bms = db.bookmarks.slice(bmBefore), bi = 0;
+    items.forEach(function (it) { if (it.kind === 'bookmark' && it.f && it.f.url) { var b = bms[bi++]; if (b && it.f.tag) b.tag = it.f.tag; } });
+    save(); render();
+    if (vaultChanged) Vault.persist().then(render, function () {});
+    if (skipped.length) toast('Unlock Safe to save: ' + skipped.join(', '));
+  };
+  actions.voiceAssistant = function () {
+    closeMenu(); assistantSheet();
+    var mic = $('#sheet [data-act=dictate][data-target="#aiText"]');
+    if (mic) actions.dictate(mic);
+  };
+  var _home171 = screens.home;
+  screens.home = function () {
+    return _home171().replace(/<button class="ai-bar" data-act="openAssistant">([\s\S]*?)<span>[^<]*<\/span>([\s\S]*?)<\/button>/, function (all, icon) {
+      return '<div class="ai-bar2"><button class="ai-bar" data-act="openAssistant">' + icon + '<span>Tell me anything: task, note, expense, link, password, trip…</span></button><button class="ai-mic" data-act="voiceAssistant" aria-label="Speak to the assistant">' + ICON.mic + '</button></div>';
+    });
+  };
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');
