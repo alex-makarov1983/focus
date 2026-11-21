@@ -842,7 +842,8 @@ test('Quick add: one line + Return adds to the current section and keeps the lin
   await page.locator('#screen .quick-add .qa-in').fill('Visit Iceland');
   await press(page, page.locator('#screen .quick-add .qa-add'));
   const titles = await page.locator('#screen .task-title').allTextContents();
-  expect(titles.slice(-2)).toEqual(['Learn to surf', 'Visit Iceland']);
+  expect(titles.slice(0, 2)).toEqual(['Visit Iceland', 'Learn to surf']);
+  await expect(page.locator('#screen > .page-head + .quick-add')).toHaveCount(1);
   const d = await stored(page);
   expect(d.tasks.find((x) => x.title === 'Learn to surf').list).toBe('someday');
   await press(page, page.locator('#toastBtn'));
@@ -882,7 +883,7 @@ test('+ opens on the current section: a project gets the task, Notes gets a note
   await expect(page.locator('#qsTitle')).toHaveValue('');
   await expect(page.locator('#qsTitle')).toBeFocused();
   await page.locator('#qsTitle').fill('Call plumber');
-  await press(page, page.locator('#sheet form button[type=submit]'));
+  await press(page, page.locator('#sheet button[type=submit]'));
   await press(page, page.locator('#sheet [data-act=closeSheet]'));
   await expect(page.locator('#screen .task-title', { hasText: 'Order tiles' })).toHaveCount(1);
   await expect(page.locator('#screen .task-title', { hasText: 'Call plumber' })).toHaveCount(1);
@@ -1056,9 +1057,10 @@ test('Money: balance required on create, amounts show thousands and currency, ac
   await press(page, page.locator('[data-act=accReorder]'));
   await press(page, page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]'));
   await press(page, page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]'));
-  expect(await banks()).toEqual(['BCA Bali', 'Main bank (USD)', 'Bank (RUB)']);
+  await expect(page.locator('[data-sort-list="acc-bank"] .ar-name')).toHaveText(['BCA Bali', 'Main bank (USD)', 'Bank (RUB)']);
   await expect(page.locator('[data-act=moveAcc][data-id="' + bca.id + '"][data-d="-1"]')).toBeDisabled();
   await press(page, page.locator('[data-act=accReorder]'));
+  expect(await banks()).toEqual(['BCA Bali', 'Main bank (USD)', 'Bank (RUB)']);
   await press(page, page.locator('[data-act=recordBalances]').first());
   const recBanks = await page.evaluate(() => {
     const out = []; let on = false;
@@ -1103,4 +1105,68 @@ test('Money: saldo = cash+banks+crypto+stocks + debts to me − my debts and car
   await expect(page.locator('[data-sum=net]')).toHaveText('$316,500');
   const d = await stored(page);
   expect(d.balances.find((b) => b.account === 'm1').amount).toBe(-10000);
+});
+
+/* ===================== v1.7 ===================== */
+test('Drag to reorder: notes, habits, priorities, accounts and subtasks keep the new order', async ({ page }) => {
+  await open(page, '#/notes');
+  const notes = page.locator('#screen [data-sort-list="notes-all"] > .sort-item');
+  const n0 = await notes.nth(0).locator('h3').textContent(), n1 = await notes.nth(1).locator('h3').textContent();
+  const b0 = await notes.nth(0).boundingBox();
+  await dragTo(page, notes.nth(1).locator('.grip'), b0.x + 40, b0.y + 4);
+  await expect(notes.nth(0).locator('h3')).toHaveText(n1);
+  await expect(notes.nth(1).locator('h3')).toHaveText(n0);
+  await page.reload(); await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('#screen [data-sort-list="notes-all"] > .sort-item').nth(0).locator('h3')).toHaveText(n1);
+
+  await viaMenu(page, 'Habits');
+  const hb = page.locator('#screen [data-sort-list="habits"] > .sort-item');
+  const h0 = await hb.nth(0).locator('.habit-name').textContent(), h1 = await hb.nth(1).locator('.habit-name').textContent();
+  const hb0 = await hb.nth(0).boundingBox();
+  await dragTo(page, hb.nth(1).locator('.grip').first(), hb0.x + 40, hb0.y + 4);
+  await expect(hb.nth(0).locator('.habit-name')).toHaveText(h1);
+  await expect(hb.nth(1).locator('.habit-name')).toHaveText(h0);
+
+  await viaMenu(page, 'Home');
+  const pri = page.locator('#screen .pri-wrap');
+  await pri.nth(0).evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  const p0 = await pri.nth(0).locator('.pri-chip').textContent();
+  const last = await pri.nth(2).boundingBox();
+  await dragTo(page, pri.nth(0).locator('.grip'), last.x + last.width - 4, last.y + last.height / 2);
+  expect((await stored(page)).lifePriorities[0]).not.toBe(p0.slice(1));
+
+  await viaMenu(page, 'Money');
+  await press(page, page.locator('[data-act=moneyTab][data-v=balance]'));
+  await press(page, page.locator('[data-act=accReorder]'));
+  const banks = page.locator('[data-sort-list="acc-bank"] > .acc-ro');
+  await banks.nth(0).evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  const a0 = await banks.nth(0).locator('.ar-name').textContent(), a1 = await banks.nth(1).locator('.ar-name').textContent();
+  const ab0 = await banks.nth(0).boundingBox();
+  await dragTo(page, banks.nth(1).locator('.grip'), ab0.x + 40, ab0.y + 4);
+  await expect(banks.nth(0).locator('.ar-name')).toHaveText(a1);
+  await expect(banks.nth(1).locator('.ar-name')).toHaveText(a0);
+});
+
+test('Forms: the main button is at the top next to ✕; the assistant adds to the screen you are on and understands more', async ({ page }) => {
+  await open(page, '#/someday');
+  await press(page, page.locator('[data-act=newTask]'));
+  await expect(page.locator('#sheet .sheet-head button[type=submit]')).toHaveText('Save');
+  await page.locator('#sheet input[name=title]').fill('Header save works');
+  await press(page, page.locator('#sheet .sheet-head button[type=submit]'));
+  expect((await stored(page)).tasks.find((x) => x.title === 'Header save works').list).toBe('someday');
+  await viaMenu(page, 'Today');
+  await press(page, page.locator('#topActions [data-act=openAssistant]'));
+  await expect(page.locator('#sheet .sheet-head button[type=submit]')).toHaveText('Apply');
+  await page.locator('#aiText').fill('Купить подарок\nчерез 3 дня отправить отчёт каждую неделю\n1200 руб такси');
+  await expect(page.locator('.ai-item')).toHaveCount(3);
+  await expect(page.locator('.ai-item').nth(2)).toContainText('Expense');
+  await press(page, page.locator('#sheet .sheet-head button[type=submit]'));
+  const d = await stored(page), t = await ymdToday(page);
+  expect(d.tasks.find((x) => x.title === 'Купить подарок').date).toBe(t);
+  const rep = d.tasks.find((x) => x.title === 'Отправить отчёт');
+  expect(rep.repeat).toBe('weekly');
+  expect(rep.date > t).toBe(true);
+  expect(d.finance.some((f) => f.amount === 1200 && f.kind === 'expense')).toBe(true);
+  await press(page, page.locator('#toastBtn'));
+  expect((await stored(page)).tasks.find((x) => x.title === 'Купить подарок')).toBeUndefined();
 });
