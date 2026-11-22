@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.coingecko.com https://api.open-meteo.com https://euwrwoxfgeylgyarrzea.supabase.co; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.coingecko.com https://api.open-meteo.com https://euwrwoxfgeylgyarrzea.supabase.co https://api.anthropic.com; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0e131d" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,7 +15,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=1.7.1">
+  <link rel="stylesheet" href="styles.css?v=1.8.1">
 </head>
 <body>
   <header class="topbar" id="topbar">
@@ -27,6 +27,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
     <span class="mini-title" id="miniTitle"></span>
+    <button class="icon-btn search-top" data-go="search" aria-label="Search everything"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></button>
     <span class="spacer"></span>
     <span id="topActions"></span>
   </header>
@@ -69,6 +70,6 @@
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 
   <noscript><p style="padding:20px">Focus needs JavaScript. Open the published https link in Safari.</p></noscript>
-  <script src="app.js?v=1.7.1"></script>
+  <script src="app.js?v=1.8.1"></script>
 </body>
 </html>

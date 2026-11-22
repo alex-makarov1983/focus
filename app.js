@@ -5184,7 +5184,6 @@
   };
   var _updateWidgets171 = updateWidgets;
   updateWidgets = function () { if (ui.route.name === 'home') checkLocation(); _updateWidgets171(); };
-  checkLocation();
 
   /* ---------- edits save themselves when you close a form ---------- */
   var NO_AUTOSAVE = /^(assistant|changePin|cloudAuth|cloudCode|lockPin|newPassword|safeLegacy|safeSetup|safeUnlock|voice)$/;
@@ -5374,6 +5373,455 @@
       return '<div class="ai-bar2"><button class="ai-bar" data-act="openAssistant">' + icon + '<span>Tell me anything: task, note, expense, link, password, trip…</span></button><button class="ai-mic" data-act="voiceAssistant" aria-label="Speak to the assistant">' + ICON.mic + '</button></div>';
     });
   };
+
+  /* ================= v1.8: search everything, Regular routines, AI assistant you can talk to ================= */
+  APP_VERSION = '1.8.0';
+  ICON.search = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>';
+  ICON.repeat = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5l3 3-3 3"/><path d="M4 11V9a3.5 3.5 0 0 1 3.5-3.5H20"/><path d="M7 21.5l-3-3 3-3"/><path d="M20 13v2a3.5 3.5 0 0 1-3.5 3.5H4"/></svg>';
+  ICON.chat = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.1A8 8 0 1 1 20 12z"/><path d="M9 11h.01M12.5 11h.01M16 11h.01"/></svg>';
+  ICON.send = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>';
+  Object.assign(ROUTES, {
+    search: { title: 'Search', icon: 'search' },
+    routines: { title: 'Regular routines', icon: 'repeat' },
+    ai: { title: 'AI assistant', icon: 'chat' }
+  });
+  DRAWER_GROUPS[0][1].splice(DRAWER_GROUPS[0][1].indexOf('deadlines') + 1, 0, 'routines');
+  DRAWER_SUB.routines = function () { var n = sel.routines().length; return n ? n + ' repeating task' + (n > 1 ? 's' : '') : 'Tasks that repeat'; };
+  DRAWER_SUB.ai = 'Plans, priorities, research';
+  var _renderDrawer18 = renderDrawer;
+  renderDrawer = function () {
+    _renderDrawer18();
+    var home = $('#drawerNav .nav-link[data-go=home]');
+    if (home && !$('#drawerNav .nav-link[data-go=ai]')) home.insertAdjacentHTML('afterend', '<button class="nav-link two" data-go="ai"' + (ui.route.name === 'ai' ? ' aria-current="page"' : '') + '>' + ICON.chat + '<span class="nl" data-sub="' + esc(DRAWER_SUB.ai) + '">AI assistant</span></button>');
+  };
+
+  /* ---------- search everything ---------- */
+  ui.searchQ = '';
+  function snippet(text, q) {
+    text = String(text || '').replace(/\s+/g, ' ');
+    var i = text.toLowerCase().indexOf(q); if (i < 0) return esc(text.slice(0, 90));
+    var s = Math.max(0, i - 30), part = text.slice(s, i + q.length + 60);
+    var j = part.toLowerCase().indexOf(q);
+    return (s ? '…' : '') + esc(part.slice(0, j)) + '<mark>' + esc(part.slice(j, j + q.length)) + '</mark>' + esc(part.slice(j + q.length));
+  }
+  function searchAll(raw) {
+    var q = raw.trim().toLowerCase(); if (q.length < 2) return [];
+    var groups = [];
+    function add(name, items) { if (items.length) groups.push([name, items.slice(0, 25), items.length]); }
+    function has() { for (var i = 0; i < arguments.length; i++) if (String(arguments[i] || '').toLowerCase().indexOf(q) >= 0) return String(arguments[i]); return null; }
+    add('Tasks', db.tasks.filter(function (t) { return has(t.title, t.notes, (t.subtasks || []).map(function (s) { return s.title; }).join(' ')); }).sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); }).map(function (t) {
+      var hit = has(t.title) ? t.title : has(t.notes) ? t.notes : (t.subtasks || []).map(function (s) { return s.title; }).join(', ');
+      return { act: 'data-act="editTask" data-id="' + esc(t.id) + '"', title: t.title, sub: (t.done ? 'Done · ' : '') + (t.date ? fmtDate(t.date) + ' · ' : '') + (t.project ? ((project(t.project) || {}).name || '') : (t.list === 'someday' ? 'Someday' : t.list === 'inbox' ? 'Inbox' : 'Anytime')), hit: hit === t.title ? '' : hit };
+    }));
+    add('Projects', db.projects.filter(function (p) { return has(p.name, p.notes); }).map(function (p) { return { act: 'data-go="project" data-id="' + esc(p.id) + '"', title: p.name, sub: label(areasList(), p.area) || '', hit: has(p.name) ? '' : p.notes }; }));
+    add('Notes', db.notes.filter(function (n) { return has(n.title, n.body); }).map(function (n) { return { act: 'data-go="note" data-id="' + esc(n.id) + '"', title: n.title || 'Untitled', sub: fmtDate(ymd(new Date(n.updatedAt || n.createdAt || Date.now()))), hit: has(n.title) ? (n.body || '').slice(0, 90) : n.body }; }));
+    add('Bookmarks', db.bookmarks.filter(function (b) { return has(b.title, b.url, b.tag, b.note); }).map(function (b) { return { act: 'data-act="editBookmark" data-id="' + esc(b.id) + '"', title: b.title || host(b.url), sub: host(b.url) + (b.tag ? ' · #' + b.tag : ''), hit: '' }; }));
+    add('Watch · Read · Listen', db.media.filter(function (m) { return has(m.title, m.by, m.note); }).map(function (m) { return { act: 'data-act="editMedia" data-id="' + esc(m.id) + '"', title: m.title, sub: m.type + ' · ' + m.status, hit: '' }; }));
+    add('Habits', db.habits.filter(function (h) { return has(h.name); }).map(function (h) { return { act: 'data-go="habits"', title: h.name, sub: 'Habit', hit: '' }; }));
+    add('Friends', db.friends.filter(function (f) { return has(f.name, f.notes, f.contact); }).map(function (f) { return { act: 'data-act="editFriend" data-id="' + esc(f.id) + '"', title: f.name, sub: f.contact || 'Friend', hit: has(f.name) ? '' : f.notes }; }));
+    add('Travel', db.trips.filter(function (t) { return has(t.title, t.destination, t.notes, (t.checklist || []).map(function (c) { return c.text || c.title; }).join(' ')); }).map(function (t) { return { act: 'data-go="trip" data-id="' + esc(t.id) + '"', title: t.title, sub: (t.destination || '') + (t.start ? ' · ' + fmtDate(t.start) : ''), hit: '' }; }));
+    add('Major purchases', db.purchases.filter(function (p) { return has(p.title, p.note); }).map(function (p) { return { act: 'data-act="editPurchase" data-id="' + esc(p.id) + '"', title: p.title, sub: fmtMoney(p.amount, p.currency) + ' · ' + p.status, hit: '' }; }));
+    add('Accounts', db.accounts.filter(function (a) { return has(a.name); }).map(function (a) { return { act: 'data-act="editAccount" data-id="' + esc(a.id) + '"', title: a.name, sub: label(ACC_CATS, a.category) + ' · ' + a.currency, hit: '' }; }));
+    add('Money records', db.finance.filter(function (r) { return has(r.category, r.note); }).sort(function (a, b) { return a.date < b.date ? 1 : -1; }).map(function (r) { return { act: 'data-act="editFinance" data-id="' + esc(r.id) + '"', title: (r.kind === 'income' ? '+' : '−') + fmtMoney(r.amount, r.currency) + ' · ' + r.category, sub: fmtDate(r.date, { full: true }) + (r.note ? ' · ' + r.note : ''), hit: '' }; }));
+    add('Journal', db.journal.filter(function (j) { return has(j.text); }).map(function (j) { return { act: 'data-act="editJournal" data-date="' + esc(j.date) + '"', title: fmtDate(j.date, { full: true, dow: true }), sub: j.mood ? MOODS[j.mood - 1][1] : '', hit: j.text }; }));
+    if (Vault.unlocked()) add('Safe', Vault.records.filter(function (r) { return has(r.title, r.link, r.login, (r.tags || []).join(' ')); }).map(function (r) { return { act: 'data-go="safe"', title: r.title, sub: r.type + (r.login ? ' · ' + r.login : ''), hit: '' }; }));
+    groups.q = q;
+    return groups;
+  }
+  function searchResultsHtml() {
+    var raw = ui.searchQ, groups = searchAll(raw);
+    if (raw.trim().length < 2) return '<div class="empty">Type at least two letters. Searches tasks, projects, notes, links, Watch · Read · Listen, habits, friends, trips, purchases, accounts, money records and the journal' + (Vault.unlocked() ? ', and Safe titles' : '') + '.</div>';
+    if (!groups.length) return '<div class="empty">Nothing found for “' + esc(raw.trim()) + '”.</div>';
+    var q = groups.q;
+    return groups.map(function (g) {
+      return section(g[0], g[2]) + '<div class="list">' + g[1].map(function (r) {
+        return '<button class="s-hit" ' + r.act + '><span class="s-t">' + snippet(r.title, q) + '</span>' + (r.sub ? '<span class="s-s">' + esc(r.sub) + '</span>' : '') + (r.hit ? '<span class="s-h">' + snippet(r.hit, q) + '</span>' : '') + '</button>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  screens.search = function () {
+    return '<div class="search-wrap"><span class="s-ic">' + ICON.search + '</span><input class="input search s-in" type="search" id="globalSearch" placeholder="Search everything" value="' + esc(ui.searchQ) + '" aria-label="Search everything" autocomplete="off" enterkeyhint="search"></div><div id="searchResults">' + searchResultsHtml() + '</div>';
+  };
+  document.addEventListener('input', function (e) {
+    if (e.target.id !== 'globalSearch') return;
+    ui.searchQ = e.target.value;
+    var box = $('#searchResults'); if (box) box.innerHTML = searchResultsHtml();
+  });
+  var _render18 = render;
+  render = function (rs) {
+    var ae = document.activeElement, wantFocus = ui.route.name === 'search' && !(ae && ae.closest && ae.closest('#sheet'));
+    _render18(rs);
+    if (wantFocus) { var i = $('#globalSearch'); if (i && document.activeElement !== i) { try { i.focus({ preventScroll: true }); } catch (e) { i.focus(); } var v = i.value; i.setSelectionRange(v.length, v.length); } }
+  };
+  var _home18 = screens.home;
+  screens.home = function () {
+    var h = _home18();
+    var bar = '<button class="home-search" data-go="search">' + ICON.search + '<span>Search everything</span></button>';
+    var i = h.indexOf('<div class="clocks"');
+    h = i >= 0 ? h.slice(0, i) + bar + h.slice(i) : bar + h;
+    var chips = '<div class="ai-chips"><button class="chip-btn" data-act="aiAsk" data-p="plan">' + ICON.chat + 'Plan my day</button><button class="chip-btn" data-act="aiAsk" data-p="focus">What matters most now?</button><button class="chip-btn" data-act="aiAsk" data-p="coach">Ask me questions</button></div>';
+    var j = h.indexOf('</div>', h.indexOf('class="ai-bar2"'));
+    return j >= 0 ? h.slice(0, j + 6) + chips + h.slice(j + 6) : h;
+  };
+
+  /* ---------- Regular routines ---------- */
+  var FREQ_ORDER = ['daily', 'weekly', 'monthly', 'yearly'];
+  sel.routines = function () { return db.tasks.filter(function (t) { return isOpen(t) && t.repeat; }); };
+  screens.routines = function () {
+    var all = sel.routines();
+    var html = head('Regular routines', 'Everything that repeats, by how often.');
+    html += '<form class="quick-add routine-add" data-form="routine" novalidate><span class="qa-dot" aria-hidden="true"></span><input name="title" class="qa-in" placeholder="New routine, e.g. Pay rent" aria-label="New routine" autocomplete="off" enterkeyhint="send" maxlength="300">' +
+      '<select name="repeat" class="qa-freq" aria-label="How often">' + REPEATS.filter(function (r) { return r[0]; }).map(function (r) { return '<option value="' + r[0] + '"' + (r[0] === 'weekly' ? ' selected' : '') + '>' + esc(r[1]) + '</option>'; }).join('') + '</select><button type="submit" class="qa-add">Add</button></form>';
+    if (!all.length) return html + '<div class="empty">No routines yet. Add one above, or set “Repeat” on any task.</div>';
+    FREQ_ORDER.concat(all.map(function (t) { return t.repeat; }).filter(function (r, i, a) { return FREQ_ORDER.indexOf(r) < 0 && a.indexOf(r) === i; })).forEach(function (f) {
+      var xs = all.filter(function (t) { return t.repeat === f; }).sort(byOrder);
+      if (!xs.length) return;
+      html += section(label(REPEATS, f) || f, xs.length) + taskList(xs, 'routine-' + f, '', { showDate: true });
+    });
+    return html;
+  };
+  submitters.routine = function (form) {
+    var title = val(form, 'title'), rep = val(form, 'repeat') || 'weekly', inp = form.elements.title;
+    if (!title) { inp.focus(); return; }
+    var t = quickCreate(title, { list: 'anytime', date: rep === 'daily' ? today() : rep === 'weekly' ? nextMonday() : today(), where: 'Regular routines' });
+    t.repeat = rep; save(); render();
+    var again = $('#screen .routine-add .qa-in'); if (again) try { again.focus({ preventScroll: true }); } catch (e) { again.focus(); }
+    var sel2 = $('#screen .routine-add select'); if (sel2) sel2.value = rep;
+    toast('Routine added: ' + label(REPEATS, rep).toLowerCase(), 'Undo', undoAdd(t.id, 'task'));
+  };
+
+  /* ---------- AI assistant: a conversation that knows your priorities and can act in the app ---------- */
+  var AI_MODELS = [['claude-sonnet-5-5', 'Claude Sonnet 5.5 (recommended)'], ['claude-opus-5-5', 'Claude Opus 5.5 (deepest)'], ['claude-haiku-5-5', 'Claude Haiku 5.5 (fastest)']];
+  function aiConf() { return readCache('focus.ai') || {}; }
+  function aiReady() { return !!aiConf().key; }
+  function aiChat() { return readCache('focus.aiChat') || []; }
+  function saveChat(c) { writeCache('focus.aiChat', c.slice(-40)); }
+  ui.aiBusy = false; ui.aiError = '';
+  function mdLite(s) {
+    var lines = esc(s).split('\n'), out = '', inList = false;
+    lines.forEach(function (l) {
+      var m = l.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
+      if (m) { if (!inList) { out += '<ul>'; inList = true; } out += '<li>' + inline(m[1]) + '</li>'; return; }
+      if (inList) { out += '</ul>'; inList = false; }
+      var hm = l.match(/^#{1,4}\s+(.*)$/);
+      out += hm ? '<p><strong>' + inline(hm[1]) + '</strong></p>' : (l.trim() ? '<p>' + inline(l) + '</p>' : '');
+    });
+    return out + (inList ? '</ul>' : '');
+    function inline(x) {
+      return x.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    }
+  }
+  function aiContext() {
+    var t = today(), d = parseYmd(t), lines = [];
+    lines.push('Today: ' + DOW[d.getDay()] + ' ' + t + ', time ' + String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0') + ', time zone ' + (function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { return '?'; } })() + '. Weeks start on Monday.');
+    lines.push('Life priorities in order: ' + (db.lifePriorities.length ? db.lifePriorities.map(function (p, i) { return (i + 1) + '. ' + p; }).join('; ') : '(none set)'));
+    lines.push('Areas: ' + areasList().map(function (a) { return a[1] + ' [area:' + a[0] + ']'; }).join(', '));
+    lines.push('Projects: ' + db.projects.map(function (p) { var st = projectStats(p.id); return p.name + ' [project:' + p.id + '] (' + (label(areasList(), p.area) || '') + ', ' + (p.status || 'active') + ', ' + st.open + ' open)'; }).join('; '));
+    var open = db.tasks.filter(isOpen).sort(function (a, b) { return (a.date || '9') < (b.date || '9') ? -1 : 1; }).slice(0, 220);
+    lines.push('Open tasks (' + db.tasks.filter(isOpen).length + ' total, showing ' + open.length + '). Format: [task:id] title | list | date time | priority | status | project | flags:');
+    open.forEach(function (x) {
+      lines.push('- [task:' + x.id + '] ' + x.title + ' | ' + x.list + ' | ' + (x.date || '-') + (x.time ? ' ' + x.time : '') + ' | ' + x.priority + ' | ' + (x.status || 'todo') + ' | ' + (x.project ? (project(x.project) || {}).name || '' : (label(areasList(), x.area) || '-')) + (x.deadline ? ' | DEADLINE' : '') + (x.repeat ? ' | repeats ' + x.repeat : '') + (x.delegatedTo ? ' | delegated to ' + x.delegatedTo : '') + (x.notes ? ' | notes: ' + x.notes.replace(/\s+/g, ' ').slice(0, 120) : ''));
+    });
+    var doneWeek = db.tasks.filter(function (x) { return x.done && x.completedAt && String(x.completedAt).slice(0, 10) >= addDays(t, -7); });
+    lines.push('Done in the last 7 days: ' + doneWeek.length + (doneWeek.length ? ' (' + doneWeek.slice(0, 25).map(function (x) { return x.title; }).join('; ') + ')' : ''));
+    if (db.habits.length) lines.push('Habits today: ' + db.habits.map(function (h) { return h.name + (h.done[t] ? ' ✓' : ' ✗'); }).join(', '));
+    var j = db.journal.filter(function (x) { return x.date >= addDays(t, -7); }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (j.length) lines.push('Journal last 7 days: ' + j.map(function (x) { return x.date + ' ' + (x.mood ? MOODS[x.mood - 1][1] : '') + (x.text ? ' — ' + x.text.slice(0, 80) : ''); }).join('; '));
+    if (db.notes.length) lines.push('Notes (titles): ' + inOrder(db.notes, byNewest).slice(0, 40).map(function (n) { return (n.title || 'Untitled') + ' [note:' + n.id + ']'; }).join('; '));
+    if (db.trips.length) lines.push('Trips: ' + db.trips.map(function (x) { return x.title + (x.start ? ' ' + x.start : '') + ' (' + x.status + ')'; }).join('; '));
+    if (db.purchases.length) lines.push('Planned purchases: ' + db.purchases.filter(function (p) { return p.status !== 'Bought'; }).map(function (p) { return p.title + ' ' + fmtMoney(p.amount, p.currency); }).join('; '));
+    if (db.friends.length) lines.push('Friends to keep in touch with: ' + db.friends.map(function (f) { var n = friendDue(f); return f.name + (n < 0 ? ' (never contacted)' : n <= 0 ? ' (due now)' : ''); }).join(', '));
+    if (db.accounts.length && db.balances.length) { var s = balanceTotals('', 'USD'), es = earnedSpent(); lines.push('Money (USD): saldo ' + Math.round(s.saldo) + ', net worth ' + Math.round(s.net) + '; this month earned ' + Math.round(es.earned) + ' ' + db.settings.currency + ', spent ' + Math.round(es.spent) + ' ' + db.settings.currency + '.'); }
+    return lines.join('\n');
+  }
+  function aiSystem() {
+    return 'You are the personal assistant and coach built into Focus, the user\'s own app for tasks, projects, notes, habits, money and life priorities. ' +
+      'Reply in the language the user writes in (usually Russian or English). Be concise and practical: short paragraphs or short lists that read well on a phone. ' +
+      'Help the user decide what matters most using their life priorities, deadlines, dates and energy; suggest a realistic order, and say what to drop or delegate. ' +
+      'Ask clarifying questions when it would change your advice, one or two at a time, and wait for the answer. When asked to coach or interview, ask one question at a time. ' +
+      'You can act in the app with the tools: search_app and get_item to read, create_task, update_task, complete_task, create_note and append_to_task_notes to change things. ' +
+      'Make changes the user asked for or clearly agreed to; for anything bigger (moving many tasks, rewriting plans) propose first and ask. Never delete anything. ' +
+      'For research use web_search, then give a short summary with the key facts, options and prices, and links to sources; offer to save it into the task notes. ' +
+      'Never ask for or handle passwords, card numbers or other Safe contents — you cannot see the Safe. ' +
+      'Refer to items by their titles, not their ids.\n\nCurrent snapshot of the app:\n' + aiContext();
+  }
+  var AI_TOOLS = [
+    { name: 'search_app', description: 'Search everything in Focus (tasks, projects, notes, bookmarks, media, friends, trips, purchases, journal) by text.', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+    { name: 'get_item', description: 'Get full details of one task, project or note by id (task notes and subtasks, note body, project notes and tasks).', input_schema: { type: 'object', properties: { type: { type: 'string', enum: ['task', 'project', 'note'] }, id: { type: 'string' } }, required: ['type', 'id'] } },
+    { name: 'create_task', description: 'Create a task.', input_schema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM' }, priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'] }, list: { type: 'string', enum: ['inbox', 'anytime', 'someday'] }, project_id: { type: 'string' }, area_id: { type: 'string' }, repeat: { type: 'string', enum: ['', 'daily', 'weekly', 'monthly', 'yearly'] }, deadline: { type: 'boolean' }, subtasks: { type: 'array', items: { type: 'string' } } }, required: ['title'] } },
+    { name: 'update_task', description: 'Change fields of an existing task. Only pass fields that change.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, notes: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD or empty to clear' }, time: { type: 'string' }, priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'] }, list: { type: 'string', enum: ['inbox', 'anytime', 'someday'] }, status: { type: 'string', enum: ['todo', 'progress', 'waiting', 'paused'] }, project_id: { type: 'string' }, repeat: { type: 'string', enum: ['', 'daily', 'weekly', 'monthly', 'yearly'] }, deadline: { type: 'boolean' }, add_subtasks: { type: 'array', items: { type: 'string' } } }, required: ['id'] } },
+    { name: 'complete_task', description: 'Mark a task done.', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+    { name: 'create_note', description: 'Create a note (for plans, research summaries, ideas).', input_schema: { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' }, project_id: { type: 'string' } }, required: ['title', 'body'] } },
+    { name: 'append_to_task_notes', description: 'Add text (for example a research summary with links) to the end of a task\'s notes.', input_schema: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, required: ['id', 'text'] } },
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 }
+  ];
+  function runTool(name, a) {
+    var t;
+    switch (name) {
+      case 'search_app': {
+        var g = searchAll(a.query || '');
+        return g.length ? g.map(function (x) { return x[0] + ': ' + x[1].slice(0, 10).map(function (r) { var idm = (r.act.match(/data-id="([^"]+)"/) || [])[1]; return r.title + (idm ? ' [id:' + idm + ']' : '') + (r.sub ? ' (' + r.sub + ')' : ''); }).join('; '); }).join('\n') : 'Nothing found.';
+      }
+      case 'get_item': {
+        if (a.type === 'task') { t = task(a.id); return t ? JSON.stringify({ id: t.id, title: t.title, notes: t.notes, list: t.list, date: t.date, time: t.time, priority: t.priority, status: t.status, project: t.project ? (project(t.project) || {}).name : '', done: t.done, repeat: t.repeat, deadline: !!t.deadline, subtasks: (t.subtasks || []).map(function (s) { return (s.done ? '[x] ' : '[ ] ') + s.title; }) }) : 'No such task.'; }
+        if (a.type === 'note') { var n = byId(db.notes, a.id); return n ? JSON.stringify({ title: n.title, body: (n.body || '').slice(0, 6000) }) : 'No such note.'; }
+        if (a.type === 'project') { var p = project(a.id); return p ? JSON.stringify({ name: p.name, notes: p.notes || '', status: p.status, tasks: db.tasks.filter(function (x) { return x.project === p.id; }).map(function (x) { return (x.done ? '[x] ' : '[ ] ') + x.title + ' [task:' + x.id + ']'; }) }) : 'No such project.'; }
+        return 'Unknown type.';
+      }
+      case 'create_task': {
+        t = quickCreate(String(a.title).slice(0, 300), { list: a.list || (a.date ? 'anytime' : 'inbox'), date: a.date || '', priority: a.priority || 'medium', project: a.project_id && project(a.project_id) ? a.project_id : '', area: a.area_id || '', deadline: !!a.deadline && !!a.date });
+        if (a.notes) t.notes = String(a.notes); if (a.time) t.time = a.time; if (a.repeat) t.repeat = a.repeat;
+        if (a.subtasks && a.subtasks.length) t.subtasks = a.subtasks.map(function (s) { return { id: uid(), title: String(s), done: false }; });
+        save(); return { ok: 'Created task “' + t.title + '” [task:' + t.id + ']', change: 'Created task: ' + t.title };
+      }
+      case 'update_task': {
+        t = task(a.id); if (!t) return 'No such task.';
+        ['title', 'notes', 'time', 'priority', 'list', 'repeat'].forEach(function (k) { if (a[k] != null) t[k] = a[k]; });
+        if (a.date != null) t.date = a.date;
+        if (a.project_id != null) { var pp = project(a.project_id); t.project = pp ? pp.id : ''; if (pp) t.area = pp.area; }
+        if (a.deadline != null) t.deadline = !!a.deadline && !!t.date;
+        if (a.add_subtasks) t.subtasks = (t.subtasks || []).concat(a.add_subtasks.map(function (s) { return { id: uid(), title: String(s), done: false }; }));
+        if (a.status) setTaskStatus(t, a.status);
+        save(); return { ok: 'Updated “' + t.title + '”', change: 'Updated: ' + t.title };
+      }
+      case 'complete_task': { t = task(a.id); if (!t) return 'No such task.'; if (!t.done) completeTask(t); save(); return { ok: 'Completed “' + t.title + '”', change: 'Done: ' + t.title }; }
+      case 'create_note': {
+        var pr = a.project_id && project(a.project_id);
+        var note = { id: uid(), title: String(a.title).slice(0, 120), body: String(a.body || ''), area: pr ? pr.area : '', project: pr ? pr.id : '', pinned: false, createdAt: Date.now(), updatedAt: Date.now(), photos: [], links: [] };
+        db.notes.push(note); save(); return { ok: 'Created note “' + note.title + '” [note:' + note.id + ']', change: 'New note: ' + note.title };
+      }
+      case 'append_to_task_notes': { t = task(a.id); if (!t) return 'No such task.'; t.notes = (t.notes ? t.notes + '\n\n' : '') + String(a.text); save(); return { ok: 'Added to notes of “' + t.title + '”', change: 'Saved to task notes: ' + t.title }; }
+    }
+    return 'Unknown tool.';
+  }
+  function callClaude(messages) {
+    var c = aiConf();
+    return fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': c.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: c.model || AI_MODELS[0][0], max_tokens: 2500, system: aiSystem(), tools: AI_TOOLS, messages: messages })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var msg = (j.error && j.error.message) || ('HTTP ' + r.status); if (r.status === 401) msg = 'The API key was not accepted. Check it in AI assistant → Settings.'; throw new Error(msg); }
+        return j;
+      });
+    });
+  }
+  function aiSend(text) {
+    text = String(text || '').trim(); if (!text || ui.aiBusy) return;
+    if (!aiReady()) { go('ai'); return; }
+    var chat = aiChat();
+    chat.push({ role: 'user', text: text, at: Date.now() });
+    saveChat(chat); ui.aiBusy = true; ui.aiError = '';
+    if (ui.route.name !== 'ai') go('ai'); else render();
+    var convo = chat.filter(function (m) { return m.role === 'user' || m.role === 'assistant'; }).slice(-16).map(function (m) { return { role: m.role, content: m.role === 'assistant' && m.changes && m.changes.length ? m.text + '\n\n[Changes made: ' + m.changes.join('; ') + ']' : m.text }; });
+    while (convo.length && convo[0].role !== 'user') convo.shift();
+    var changes = [], sources = [], rounds = 0;
+    function step(msgs) {
+      return callClaude(msgs).then(function (res) {
+        var content = res.content || [];
+        content.forEach(function (b) {
+          if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.forEach(function (r) { if (r.url && sources.length < 8 && sources.indexOf(r.url) < 0) sources.push(r.url); });
+          if (b.type === 'text' && b.citations) b.citations.forEach(function (ci) { if (ci.url && sources.length < 8 && sources.indexOf(ci.url) < 0) sources.push(ci.url); });
+        });
+        var uses = content.filter(function (b) { return b.type === 'tool_use'; });
+        if (res.stop_reason === 'tool_use' && uses.length && rounds++ < 8) {
+          var results = uses.map(function (u) {
+            var out; try { out = runTool(u.name, u.input || {}); } catch (e) { out = 'Error: ' + e.message; }
+            if (out && out.change) { changes.push(out.change); out = out.ok; }
+            return { type: 'tool_result', tool_use_id: u.id, content: String(out) };
+          });
+          if (changes.length) render();
+          return step(msgs.concat([{ role: 'assistant', content: content }, { role: 'user', content: results }]));
+        }
+        if (res.stop_reason === 'pause_turn' && rounds++ < 8) return step(msgs.concat([{ role: 'assistant', content: content }]));
+        return content.filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('').trim();
+      });
+    }
+    step(convo).then(function (answer) {
+      var c2 = aiChat(); c2.push({ role: 'assistant', text: answer || (changes.length ? 'Done.' : '…'), changes: changes, sources: sources, at: Date.now() }); saveChat(c2);
+    }).catch(function (e) {
+      ui.aiError = e.message || 'Something went wrong.';
+    }).then(function () { ui.aiBusy = false; if (ui.route.name === 'ai') render(); else if (!ui.aiError) toast('Assistant replied', 'Open', function () { go('ai'); }); });
+  }
+  var AI_PROMPTS = {
+    plan: 'Plan my day: look at today, overdue, deadlines and my priorities, and give me a realistic order with times. Ask me if anything is unclear.',
+    focus: 'What matters most right now, given my life priorities and deadlines? Give me the top 3 and why, and what I can drop or delegate.',
+    coach: 'Coach me: ask me questions, one at a time, to understand my priorities and where I am stuck, then help me decide what to do next.',
+    week: 'Weekly review: what did I get done, what slipped, what should I plan for next week? Ask me before changing anything.'
+  };
+  actions.aiAsk = function (el) {
+    var p = AI_PROMPTS[el.dataset.p] || el.dataset.text || '';
+    if (!aiReady()) { go('ai'); toast('Add your API key first'); return; }
+    aiSend(p);
+  };
+  actions.aiNew = function () { saveChat([]); ui.aiError = ''; render(); };
+  actions.aiSettings = function () { ui.aiSetup = !ui.aiSetup; render(); };
+  submitters.aiChat = function (form) {
+    var ta = form.elements.text, v = ta.value; if (!v.trim()) { ta.focus(); return; }
+    ta.value = ''; aiSend(v);
+  };
+  submitters.aiKey = function (form) {
+    var key = val(form, 'key'), c = aiConf();
+    if (key) c.key = key;
+    c.model = val(form, 'model') || c.model || AI_MODELS[0][0];
+    if (!c.key) { toast('Paste your API key'); return; }
+    writeCache('focus.ai', c); ui.aiSetup = false; render(); toast('Assistant is ready');
+  };
+  actions.aiForget = function () { var c = aiConf(); delete c.key; writeCache('focus.ai', c); ui.aiSetup = true; render(); toast('Key removed from this device'); };
+  function aiSetupHtml() {
+    var c = aiConf();
+    return '<div class="card pad ai-setup"><strong>Connect the assistant</strong><p class="muted small">The assistant uses Claude through your own Anthropic API key. Create one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">console.anthropic.com</a> (usage is billed to your Anthropic account). The key stays on this device only — it is not synced and is sent only to api.anthropic.com. The assistant sees your tasks, projects, notes, habits, journal and money totals, never the Safe.</p>' +
+      '<form data-form="aiKey" data-keep-submit novalidate><label class="field"><span>API key' + (c.key ? ' (saved — paste a new one to replace)' : '') + '</span><input name="key" type="password" autocomplete="off" placeholder="sk-ant-…"></label>' +
+      '<label class="field"><span>Model</span><select name="model">' + options(AI_MODELS, c.model || AI_MODELS[0][0]) + '</select></label>' +
+      '<div class="btn-row"><button class="btn" type="submit">Save</button>' + (c.key ? '<button type="button" class="btn plain" data-act="aiForget">Remove key</button>' : '') + '</div></form></div>';
+  }
+  screens.ai = function () {
+    var chat = aiChat();
+    var html = head('AI assistant', 'Knows your priorities and tasks. Can plan, ask, act and research.', aiReady() ? '<button class="btn ghost" data-act="aiNew">New chat</button>' : '');
+    if (!aiReady() || ui.aiSetup) return html + aiSetupHtml();
+    html += '<div class="ai-log" id="aiLog">';
+    if (!chat.length) html += '<div class="ai-empty"><p class="muted">Ask anything about your tasks and plans, or start with:</p><div class="ai-chips col">' + [['plan', 'Plan my day'], ['focus', 'What matters most now?'], ['coach', 'Ask me questions'], ['week', 'Weekly review']].map(function (p) { return '<button class="chip-btn" data-act="aiAsk" data-p="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div></div>';
+    chat.forEach(function (m) {
+      if (m.role === 'user') html += '<div class="ai-msg me">' + esc(m.text).replace(/\n/g, '<br>') + '</div>';
+      else html += '<div class="ai-msg bot">' + mdLite(m.text) +
+        (m.changes && m.changes.length ? '<div class="ai-changes">' + m.changes.map(function (c) { return '<span>✓ ' + esc(c) + '</span>'; }).join('') + '</div>' : '') +
+        (m.sources && m.sources.length ? '<div class="ai-src">Sources: ' + m.sources.map(function (u) { return '<a href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(host(u)) + '</a>'; }).join(' · ') + '</div>' : '') + '</div>';
+    });
+    if (ui.aiBusy) html += '<div class="ai-msg bot typing"><i></i><i></i><i></i></div>';
+    if (ui.aiError) html += '<div class="notice">' + esc(ui.aiError) + '</div>';
+    html += '</div>';
+    html += '<form class="ai-input" data-form="aiChat" data-keep-submit novalidate><div class="field has-mic"><textarea id="aiChatText" name="text" rows="2" placeholder="Message your assistant…" aria-label="Message"></textarea>' + micBtn('#aiChatText') + '</div><button class="ai-send" type="submit" aria-label="Send"' + (ui.aiBusy ? ' disabled' : '') + '>' + ICON.send + '</button></form>';
+    html += '<p class="muted small" style="margin-top:6px"><button class="link-btn" data-act="aiSettings">Assistant settings</button></p>';
+    return html;
+  };
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.id === 'aiChatText' && e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer: fine)').matches) { e.preventDefault(); e.target.form.requestSubmit(); }
+  });
+  var _render18b = render;
+  render = function (rs) {
+    _render18b(rs);
+    if (ui.route.name === 'ai') { var log = $('#aiLog'); if (log && log.lastElementChild) log.lastElementChild.scrollIntoView({ block: 'end' }); }
+  };
+  /* Research button in the task form */
+  var _taskForm18 = taskForm;
+  taskForm = function (t, ctx) {
+    _taskForm18(t, ctx);
+    if (!t) return;
+    var form = $('#sheet form[data-form=task]'); if (!form) return;
+    var anchor = form.querySelector('.actions') || form.lastElementChild;
+    anchor.insertAdjacentHTML('beforebegin', '<button type="button" class="btn plain block ai-research" data-act="aiResearch" data-id="' + esc(t.id) + '">' + ICON.chat + 'Research this task with AI</button>');
+  };
+  actions.aiResearch = function (el) {
+    var t = task(el.dataset.id); if (!t) return;
+    closeSheet(true);
+    if (!aiReady()) { go('ai'); toast('Add your API key first'); return; }
+    aiSend('Research this task for me: “' + t.title + '” [task:' + t.id + ']' + (t.notes ? '\nWhat I already have: ' + t.notes.slice(0, 600) : '') + '\nFind what I need to know to get it done: options, prices, steps, who to contact, with links. Keep it short, then offer to save the summary into the task notes.');
+  };
+
+  /* ================= v1.8.1: All tasks, tap anywhere on Safe, Face ID that finishes setting up on iPhone, full-height Safe form ================= */
+  APP_VERSION = '1.8.1';
+
+  /* ---------- All tasks ---------- */
+  ROUTES.alltasks = { title: 'All tasks', icon: 'task' };
+  DRAWER_GROUPS[0][1].unshift('alltasks');
+  sel.allOpen = function () { return db.tasks.filter(isOpen); };
+  screens.alltasks = function () {
+    var all = sel.allOpen(), html = head('All tasks', all.length + ' open · ' + sel.doneToday().length + ' done today');
+    html += addTaskBtn({});
+    [['inbox', 'Inbox'], ['anytime', 'Anytime'], ['someday', 'Someday']].forEach(function (l) {
+      var xs = all.filter(function (t) { return (t.list || 'inbox') === l[0]; }).sort(byOrder);
+      if (xs.length) html += section(l[1], xs.length) + taskList(xs, 'all-' + l[0], '', { showDate: true });
+    });
+    if (!all.length) html += '<div class="empty">No open tasks. Nice.</div>';
+    return html;
+  };
+  var _renderDrawer181 = renderDrawer;
+  renderDrawer = function () {
+    _renderDrawer181();
+    var a = $('#drawerNav .nav-link[data-go=alltasks]'), n = sel.allOpen().length;
+    if (a && n && !a.querySelector('.badge')) a.insertAdjacentHTML('beforeend', '<span class="badge">' + n + '</span>');
+  };
+  var _home181 = screens.home;
+  screens.home = function () {
+    var h = _home181(), n = sel.allOpen().length;
+    var i = h.indexOf('<div class="tiles eight"'); if (i < 0) return h;
+    var end = h.indexOf('</button>', h.indexOf('data-go="paused"', i)) + 9;
+    end = h.indexOf('</div>', end);
+    if (end < 0) return h;
+    return h.slice(0, end + 6) + '<button class="all-tasks-link" data-go="alltasks"><span>All open tasks</span><b>' + n + '</b>' + ICON.chev + '</button>' + h.slice(end + 6);
+  };
+
+  /* ---------- Safe: tap anywhere on a block ---------- */
+  document.addEventListener('click', function (e) {
+    var card = e.target.closest && e.target.closest('.safe-c[data-safe]');
+    if (!card || e.target.closest('a, button, input, label')) return;
+    var r = byId(Vault.records, card.dataset.safe); if (r) safeForm(r);
+  });
+  var _home181b = screens.home;
+  screens.home = function () {
+    return _home181b().replace('<div class="card pad safe-quick"', '<div class="card pad safe-quick tap" data-go="safe" role="link" tabindex="0" aria-label="Open Safe"');
+  };
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('safe-quick')) { e.preventDefault(); go('safe'); }
+  });
+
+  /* ---------- Face ID for the Safe: iPhone needs a second tap to read the key, so ask for it ---------- */
+  Vault.sealPrf = function (id, salt, bytes) {
+    var self = this;
+    return aesKey(bytes).then(function (k) { return seal(k, self.raw); }).then(function (box) { self.meta.prf = { credId: b64e(id), salt: b64e(salt), box: box }; return self.persist(); });
+  };
+  Vault.enableFaceId = function () {
+    var self = this, salt = rnd(32);
+    return navigator.credentials.create({ publicKey: {
+      rp: { name: 'Focus' }, user: { id: rnd(16), name: 'focus-safe', displayName: 'Focus Safe' }, challenge: rnd(32),
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'required' },
+      timeout: 60000, extensions: { prf: { eval: { first: salt } } } } }).then(function (cred) {
+      var ext = cred.getClientExtensionResults() || {};
+      if (!ext.prf || ext.prf.enabled === false) throw new Error('unsupported');
+      var id = new Uint8Array(cred.rawId), first = ext.prf.results && ext.prf.results.first;
+      if (first) return self.sealPrf(id, salt, new Uint8Array(first));
+      ui.facePending = { id: id, salt: salt };
+      return self.prfGet(id, salt).then(function (bytes) { ui.facePending = null; return self.sealPrf(id, salt, bytes); }, function () { throw new Error('confirm'); });
+    });
+  };
+  faceIdError = function (e) {
+    if (e && e.message === 'confirm') { render(); toast('One more step: confirm with Face ID', 'Confirm', actions.faceIdConfirm); return; }
+    var n = e && e.name, m = (e && e.message) || '';
+    toast(m === 'unsupported' ? 'This iPhone can’t use Face ID for the Safe (needs iOS 18 or later and iCloud Keychain turned on). Use your PIN.'
+      : n === 'NotAllowedError' ? 'Face ID was cancelled or timed out. Try again.'
+      : n === 'InvalidStateError' ? 'Face ID is already set up for this Safe on this device.'
+      : n === 'SecurityError' ? 'Face ID needs the app opened from its https address.'
+      : 'Face ID failed: ' + (n ? n + ' — ' : '') + (m || 'unknown error'));
+  };
+  actions.faceIdOn = function () {
+    if (!Vault.unlocked()) { go('safe'); toast('Unlock Safe first'); return; }
+    Vault.enableFaceId().then(function () { render(); toast('Face ID unlock is on'); }).catch(faceIdError);
+  };
+  actions.faceIdConfirm = function () {
+    var p = ui.facePending; if (!p || !Vault.unlocked()) return;
+    Vault.prfGet(p.id, p.salt).then(function (bytes) { return Vault.sealPrf(p.id, p.salt, bytes); })
+      .then(function () { ui.facePending = null; render(); toast('Face ID unlock is on'); }).catch(function (e) { faceIdError(e && e.message === 'unsupported' ? e : e); });
+  };
+  actions.safeFaceId = function () { Vault.unlockFaceId().then(function () { render(); afterUnlock(); }).catch(faceIdError); };
+  var _safe181 = screens.safe;
+  screens.safe = function () {
+    var html = _safe181();
+    if (Vault.exists() && !Vault.unlocked() && Vault.blob().prf) {
+      var btn = '<button type="button" class="btn ghost block" style="margin-top:10px" data-act="safeFaceId">Unlock with Face ID</button>';
+      html = html.replace(btn, '').replace('<p class="muted small">You’ll only be asked once per app launch.</p>', '<p class="muted small">You’ll only be asked once per app launch.</p><button type="button" class="btn block face-first" data-act="safeFaceId">' + ICON.lock + 'Unlock with Face ID</button><p class="muted small" style="text-align:center;margin:8px 0 2px">or enter your PIN</p>').replace(/(<input[^>]*name="pin"[^>]*?) autofocus/, '$1');
+    }
+    if (Vault.unlocked() && ui.facePending) html = html.replace('<div class="btn-row" style="margin-bottom:12px">', '<div class="card pad row between" style="margin-bottom:12px"><span class="small">Finish turning on Face ID</span><button class="tiny-btn" data-act="faceIdConfirm">Confirm</button></div><div class="btn-row" style="margin-bottom:12px">');
+    return html;
+  };
+
+  /* ---------- Safe record form opens at full height so every field is visible ---------- */
+  var _openSheet181 = openSheet;
+  openSheet = function (title, body) { sheetEl.classList.remove('tall'); _openSheet181(title, body); };
+  var _safeForm181 = safeForm;
+  safeForm = function (r, draft) { _safeForm181(r, draft); sheetEl.classList.add('tall'); };
 
   /* ================= boot ================= */
   function boot() {
