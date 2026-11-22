@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal', 'Regular routines', 'AI assistant', 'All tasks'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -1221,4 +1221,89 @@ test('Assistant files anything: friend, trip, purchase, balance, journal, idea, 
   expect(d.notes.some((n) => n.body === 'подкаст про виллы')).toBe(true);
   expect(d.bookmarks.some((b) => b.tag === 'work')).toBe(true);
   expect(d.finance.some((f) => f.amount === 45000 && f.category === 'Family living' && f.currency === 'IDR')).toBe(true);
+});
+
+/* ===================== v1.8 ===================== */
+test('Search everything from the top: finds projects and tasks and opens them', async ({ page }) => {
+  await open(page);
+  await press(page, page.locator('.home-search'));
+  await expect(page.locator('#globalSearch')).toBeFocused();
+  await page.locator('#globalSearch').fill('renovation');
+  await expect(page.locator('#searchResults .section h2', { hasText: 'Projects' })).toHaveCount(1);
+  await expect(page.locator('#searchResults .s-hit mark').first()).toHaveText(/renovation/i);
+  await press(page, page.locator('#searchResults .s-hit[data-go=project]').first());
+  await expect(h1(page)).toHaveText('Home renovation');
+  await press(page, page.locator('.search-top'));
+  await expect(page.locator('#globalSearch')).toHaveValue('renovation');
+});
+
+test('Regular routines: lists repeating tasks by frequency and adds new ones', async ({ page }) => {
+  await open(page);
+  await viaMenu(page, 'Regular routines');
+  await page.locator('.routine-add .qa-in').fill('Pay villa rent');
+  await page.locator('.routine-add select').selectOption('monthly');
+  await page.locator('.routine-add .qa-in').press('Enter');
+  const sec = page.locator('#screen .section', { hasText: 'Every month' });
+  await expect(sec).toHaveCount(1);
+  await expect(page.locator('#screen .task-title', { hasText: 'Pay villa rent' })).toHaveCount(1);
+  expect((await stored(page)).tasks.find((x) => x.title === 'Pay villa rent').repeat).toBe('monthly');
+});
+
+test('AI assistant: uses your key, sends priorities and tasks, can create a task, shows the reply', async ({ page }) => {
+  const calls = [];
+  await page.route('https://api.anthropic.com/v1/messages', async (route) => {
+    const req = route.request(); const body = JSON.parse(req.postData());
+    calls.push({ headers: req.headers(), body });
+    if (calls.length === 1) {
+      await route.fulfill({ json: { content: [{ type: 'text', text: 'Adding it.' }, { type: 'tool_use', id: 'tu1', name: 'create_task', input: { title: 'Call the notary', date: '2030-01-15', priority: 'high' } }], stop_reason: 'tool_use' } });
+    } else {
+      await route.fulfill({ json: { content: [{ type: 'text', text: 'Done. **Top 3** for today:\n- Review plan\n- Call the notary' }], stop_reason: 'end_turn' } });
+    }
+  });
+  await open(page);
+  await viaMenu(page, 'AI assistant');
+  await page.locator('form[data-form=aiKey] input[name=key]').fill('sk-ant-test');
+  await press(page, page.locator('form[data-form=aiKey] button[type=submit]'));
+  await page.locator('#aiChatText').fill('Добавь задачу позвонить нотариусу');
+  await press(page, page.locator('.ai-send'));
+  await expect(page.locator('.ai-msg.bot').last()).toContainText('Top 3');
+  await expect(page.locator('.ai-msg.bot strong')).toHaveText('Top 3');
+  await expect(page.locator('.ai-changes')).toContainText('Call the notary');
+  expect(calls[0].headers['x-api-key']).toBe('sk-ant-test');
+  expect(calls[0].body.system).toContain('Life priorities');
+  expect(calls[0].body.system).toContain('Review quarterly growth plan');
+  expect(calls[0].body.system).not.toContain('Demo bank');
+  expect(calls[0].body.tools.some((x) => x.name === 'web_search')).toBe(true);
+  expect(calls[1].body.messages.at(-1).content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'tu1' });
+  const task = (await stored(page)).tasks.find((x) => x.title === 'Call the notary');
+  expect(task).toMatchObject({ date: '2030-01-15', priority: 'high' });
+  const key = await page.evaluate(() => localStorage.getItem('focus.ai'));
+  expect(JSON.stringify(await stored(page))).not.toContain('sk-ant-test');
+  expect(key).toContain('sk-ant-test');
+});
+
+/* ===================== v1.8.1 ===================== */
+test('All tasks: count in the menu and on Home; Safe opens from anywhere on its block; Safe form is full height', async ({ page }) => {
+  await open(page);
+  const n = await page.evaluate(() => JSON.parse(localStorage.getItem('focus.data.v1')).tasks.filter((t) => !t.done).length);
+  await expect(page.locator('.all-tasks-link b')).toHaveText(String(n));
+  await press(page, page.locator('#menuBtn'));
+  await expect(page.locator('#drawer .nav-link[data-go=alltasks] .badge')).toHaveText(String(n));
+  await press(page, page.locator('#drawer .nav-link[data-go=alltasks]'));
+  await expect(h1(page)).toHaveText('All tasks');
+  await expect(page.locator('#screen .task')).toHaveCount(n);
+  await viaMenu(page, 'Home');
+  await page.locator('.safe-quick strong').click();
+  await expect(page.locator('form[data-form=safeSetup], form[data-form=safeUnlock]').first()).toBeVisible();
+  await page.locator('input[name=pin]').fill('4821');
+  await page.locator('input[name=pin2]').fill('4821');
+  await press(page, page.locator('form[data-form=safeSetup] button[type=submit]'));
+  await press(page, page.locator('[data-act=newSafe]'));
+  const vh = await page.evaluate(() => window.innerHeight);
+  const box = await page.locator('#sheet').boundingBox();
+  expect(box.height).toBeGreaterThan(vh - 40);
+  await page.locator('#sheet input[name=title]').fill('Tap card');
+  await press(page, page.locator('#sheet button[type=submit]'));
+  await page.locator('.safe-c', { hasText: 'Tap card' }).locator('.sc-top').click({ position: { x: 200, y: 10 } });
+  await expect(page.locator('#sheet input[name=title]')).toHaveValue('Tap card');
 });
