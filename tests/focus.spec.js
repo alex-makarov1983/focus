@@ -1251,13 +1251,16 @@ test('Regular routines: lists repeating tasks by frequency and adds new ones', a
 
 test('AI assistant: uses your key, sends priorities and tasks, can create a task, shows the reply', async ({ page }) => {
   const calls = [];
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
   await page.route('https://api.anthropic.com/v1/messages', async (route) => {
-    const req = route.request(); const body = JSON.parse(req.postData());
+    const req = route.request();
+    if (req.method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return; }
+    const body = JSON.parse(req.postData());
     calls.push({ headers: req.headers(), body });
     if (calls.length === 1) {
-      await route.fulfill({ json: { content: [{ type: 'text', text: 'Adding it.' }, { type: 'tool_use', id: 'tu1', name: 'create_task', input: { title: 'Call the notary', date: '2030-01-15', priority: 'high' } }], stop_reason: 'tool_use' } });
+      await route.fulfill({ headers: cors, json: { content: [{ type: 'text', text: 'Adding it.' }, { type: 'tool_use', id: 'tu1', name: 'create_task', input: { title: 'Call the notary', date: '2030-01-15', priority: 'high' } }], stop_reason: 'tool_use' } });
     } else {
-      await route.fulfill({ json: { content: [{ type: 'text', text: 'Done. **Top 3** for today:\n- Review plan\n- Call the notary' }], stop_reason: 'end_turn' } });
+      await route.fulfill({ headers: cors, json: { content: [{ type: 'text', text: 'Done. **Top 3** for today:\n- Review plan\n- Call the notary' }], stop_reason: 'end_turn' } });
     }
   });
   await open(page);
