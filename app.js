@@ -3791,6 +3791,692 @@
   };
   function showLockEarly() { if (AppLock.on()) showLock(); }
 
+  /* ================= v1.6: menu from the spec, new sections, richer Home ================= */
+  APP_VERSION = '1.6.0';
+
+  /* ---------- data ---------- */
+  var _normalize7 = normalize;
+  normalize = function (d) {
+    d = _normalize7(d);
+    if (!Array.isArray(d.lists)) d.lists = [{ id: 'ls_shopping', name: 'Shopping', order: 0 }, { id: 'ls_groceries', name: 'Groceries', order: 1 }, { id: 'ls_packing', name: 'Travel packing', order: 2 }];
+    ['listItems', 'routines', 'inboxes', 'snippets', 'socials', 'features'].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
+    ['diary', 'focus3', 'visited'].forEach(function (k) { if (!d[k] || typeof d[k] !== 'object' || Array.isArray(d[k])) d[k] = {}; });
+    ['countries', 'parks', 'places'].forEach(function (k) { if (!d.visited[k] || typeof d.visited[k] !== 'object') d.visited[k] = {}; });
+    if (typeof d.mindset !== 'string') d.mindset = '';
+    var W = d.settings.widgets; ['indices', 'countdowns'].forEach(function (k) { if (W[k] == null) W[k] = true; });
+    d.routines.forEach(function (r) { if (!Array.isArray(r.steps)) r.steps = []; if (!r.log || typeof r.log !== 'object') r.log = {}; });
+    d.inboxes.forEach(function (x) { if (!x.checked || typeof x.checked !== 'object') x.checked = {}; });
+    return d;
+  };
+  function sortByOrder(a) { return a.slice().sort(function (x, y) { return (x.order || 0) - (y.order || 0); }); }
+  function nextOrder(a) { return a.reduce(function (m, x) { return Math.max(m, x.order || 0); }, 0) + 1; }
+  function checkRow(on, act, id, label, body, extra) {
+    return '<div class="task' + (on ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + on + '" data-act="' + act + '" data-id="' + esc(id) + '" aria-label="' + esc(label) + '"><span class="box">' + ICON.tick + '</span></button>' + body + (extra || '') + '</div>';
+  }
+
+  /* ---------- routes, icons, menu (order from the spec) ---------- */
+  function svg(p, fill) { return '<svg viewBox="0 0 24 24" fill="' + (fill ? 'currentColor' : 'none') + '" stroke="' + (fill ? 'none' : 'currentColor') + '" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>'; }
+  ICON.routines = svg('<path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18.5 3v4h-4M5.5 21v-4h4"/>');
+  ICON.visited = svg('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><path d="M9.5 10l2 2 3.5-3.5"/>');
+  ICON.inboxes = svg('<path d="M4 6.5h16v11H4z"/><path d="M4 7l8 6 8-6"/><circle cx="19" cy="5.5" r="2.5" fill="currentColor" stroke="none"/>');
+  ICON.snippets = svg('<rect x="8.5" y="8.5" width="11" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/>');
+  ICON.lists = svg('<path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5"/>');
+  ICON.socials = svg('<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.3 6.7"/>');
+  ICON.diary = svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5v.5M15 9.5v.5"/>');
+  ICON.features = svg('<path d="M9.5 17.5h5M10 20.5h4M12 3.5a5.5 5.5 0 0 0-3.3 9.9c.6.5.8 1.1.8 1.8v.3h5v-.3c0-.7.3-1.3.8-1.8A5.5 5.5 0 0 0 12 3.5z"/>');
+  ICON.calc = svg('<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>');
+  ICON.eye = svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>');
+  Object.assign(ROUTES, {
+    routines: { title: 'Routines', icon: 'routines' }, visited: { title: 'Places visited', icon: 'visited' },
+    inboxes: { title: 'Message inboxes', icon: 'inboxes' }, snippets: { title: 'Copy-paste data', icon: 'snippets' },
+    lists: { title: 'Shopping lists', icon: 'lists' }, socials: { title: 'My social media', icon: 'socials' },
+    diary: { title: 'Diary', icon: 'diary' }, features: { title: 'Feature requests', icon: 'features' }
+  });
+  DRAWER_GROUPS = [
+    ['Plan', ['home', 'inbox', 'today', 'urgent', 'upcoming', 'anytime', 'someday', 'followup', 'paused', 'logbook']],
+    ['Views', ['calendar', 'kanban']],
+    ['Life', ['habits', 'routines', 'life', 'friends', 'travel', 'visited', 'media']],
+    ['Organize', ['areas', 'projects', 'notes', 'bookmarks', 'inboxes', 'delegated']],
+    ['Private', ['safe', 'snippets']],
+    ['Money', ['finance', 'purchases', 'lists']],
+    ['Me', ['socials', 'diary']],
+    ['App', ['features', 'settings', 'account']]
+  ];
+  MORE_ROUTES.push('features');
+  actions.openMore = function () {
+    closeMenu();
+    openSheet('More', '<div class="chooser">' + [['projects', 'Projects', ICON.projects], ['notes', 'Notes', ICON.note], ['safe', 'Safe', ICON.lock], ['finance', 'Money', ICON.finance], ['features', 'Feature requests', ICON.features]].map(function (x) {
+      return '<button type="button" class="choice" data-go="' + x[0] + '">' + x[2] + x[1] + '</button>';
+    }).join('') + '</div>');
+  };
+  var _chooser7 = chooser;
+  chooser = function () {
+    _chooser7();
+    var c = $('#sheet .chooser');
+    if (c) c.insertAdjacentHTML('beforeend', '<button type="button" class="choice" data-act="choose" data-kind="diary">' + ICON.diary + 'Diary</button><button type="button" class="choice" data-act="choose" data-kind="listitem">' + ICON.lists + 'Shopping</button>');
+  };
+  var _choose7 = actions.choose;
+  actions.choose = function (el) {
+    var k = el.dataset.kind;
+    if (k === 'diary') { closeSheet(true); diaryForm(today()); return; }
+    if (k === 'listitem') { closeSheet(true); go('lists'); setTimeout(function () { var i = $('#listAddIn'); if (i) i.focus(); }, 60); return; }
+    _choose7(el);
+  };
+  /* Export, Import and Erase live in Settings → Data; the drawer keeps only the version line. */
+  var _boot7a = boot;
+  boot = function () { _boot7a(); $all('.drawer-foot button').forEach(function (b) { b.remove(); }); };
+
+  /* ---------- simple text sheet used by several sections ---------- */
+  function itemSheet(o) {
+    openSheet(o.title, '<form data-form="' + o.form + '" data-id="' + esc(o.id || '') + '" novalidate>' + o.fields + '<p class="hint" id="itemErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (o.id ? '<button type="button" class="btn danger block" data-act="' + o.del + '" data-id="' + esc(o.id) + '">Delete</button>' : '') + '</div></form>');
+  }
+  function fieldIn(name, label, value, extra) { return '<label class="field"><span>' + label + '</span><input name="' + name + '" value="' + esc(value || '') + '"' + (extra || '') + '></label>'; }
+  function removeById(key, id) { db[key] = db[key].filter(function (x) { return x.id !== id; }); save(); closeSheet(); render(); }
+
+  /* ---------- Shopping lists (shopping, groceries, packing, your own) ---------- */
+  ui.listId = '';
+  screens.lists = function () {
+    var lists = sortByOrder(db.lists), cur = byId(db.lists, ui.listId) || lists[0];
+    var html = head('Shopping lists', 'Tick items off as you go. Done items move down.', '<button class="btn ghost" data-act="newList">+ List</button>');
+    if (!cur) return html + '<div class="empty">No lists yet. Tap + List.</div>';
+    html += '<div class="chips">' + lists.map(function (l) {
+      var n = db.listItems.filter(function (i) { return i.list === l.id && !i.done; }).length;
+      return '<button class="chip-btn" data-act="pickList" data-id="' + esc(l.id) + '" aria-pressed="' + (l.id === cur.id) + '">' + esc(l.name) + (n ? ' · ' + n : '') + '</button>';
+    }).join('') + '</div>';
+    var items = db.listItems.filter(function (i) { return i.list === cur.id; });
+    var open = sortByOrder(items.filter(function (i) { return !i.done; })), done = items.filter(function (i) { return i.done; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); });
+    html += '<div class="list">' + open.map(function (i) { return checkRow(false, 'listToggle', i.id, 'Got ' + i.text, '<button class="task-body" data-act="editListItem" data-id="' + esc(i.id) + '"><span class="task-title">' + esc(i.text) + '</span></button>'); }).join('') + '</div>';
+    html += '<form class="quick-add" data-form="listItem" data-list="' + esc(cur.id) + '" novalidate autocomplete="off"><input class="input" id="listAddIn" name="text" placeholder="Add to ' + esc(cur.name) + '" enterkeyhint="done" aria-label="New item"><button class="btn" type="submit">Add</button></form>';
+    if (done.length) html += section('Done', done.length, '<button class="link-btn" data-act="clearListDone" data-id="' + esc(cur.id) + '">Clear</button>') +
+      '<div class="list">' + done.map(function (i) { return checkRow(true, 'listToggle', i.id, 'Put back ' + i.text, '<button class="task-body" data-act="editListItem" data-id="' + esc(i.id) + '"><span class="task-title">' + esc(i.text) + '</span></button>'); }).join('') + '</div>';
+    return html + '<div class="btn-row" style="margin-top:14px"><button class="tiny-btn" data-act="editList" data-id="' + esc(cur.id) + '">Rename or delete “' + esc(cur.name) + '”</button></div>';
+  };
+  actions.pickList = function (el) { ui.listId = el.dataset.id; render(); };
+  submitters.listItem = function (form) {
+    var text = val(form, 'text'); if (!text) return;
+    var list = form.dataset.list;
+    text.split(/\n|,\s*(?=\S)/).map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (t) {
+      db.listItems.push({ id: 'li_' + uid(), list: list, text: t, done: false, order: nextOrder(db.listItems), createdAt: Date.now() });
+    });
+    ui.listId = list; save(); render();
+    var i = $('#listAddIn'); if (i) i.focus();
+  };
+  actions.listToggle = function (el) { var i = byId(db.listItems, el.dataset.id); if (!i) return; i.done = !i.done; i.doneAt = i.done ? Date.now() : 0; save(); render(); };
+  actions.clearListDone = function (el) { db.listItems = db.listItems.filter(function (i) { return !(i.list === el.dataset.id && i.done); }); save(); render(); toast('Cleared'); };
+  actions.editListItem = function (el) { var i = byId(db.listItems, el.dataset.id); if (i) itemSheet({ title: 'Edit item', form: 'listItemEdit', id: i.id, del: 'deleteListItem', fields: fieldIn('text', 'Item', i.text, ' required autofocus') }); };
+  submitters.listItemEdit = function (form) { var i = byId(db.listItems, form.dataset.id), t = val(form, 'text'); if (!i) return; if (!t) { $('#itemErr').textContent = 'Write the item.'; return; } i.text = t; save(); closeSheet(); render(); };
+  actions.deleteListItem = function (el) { removeById('listItems', el.dataset.id); };
+  actions.newList = function () { itemSheet({ title: 'New list', form: 'list', fields: fieldIn('name', 'List name', '', ' required autofocus placeholder="Hardware store, Pharmacy…"') }); };
+  actions.editList = function (el) { var l = byId(db.lists, el.dataset.id); if (l) itemSheet({ title: 'Edit list', form: 'list', id: l.id, del: 'deleteList', fields: fieldIn('name', 'List name', l.name, ' required autofocus') }); };
+  submitters.list = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#itemErr').textContent = 'Name the list.'; return; }
+    var l = form.dataset.id ? byId(db.lists, form.dataset.id) : { id: 'ls_' + uid(), order: nextOrder(db.lists) };
+    l.name = name; if (!form.dataset.id) db.lists.push(l);
+    ui.listId = l.id; save(); closeSheet(); render();
+  };
+  actions.deleteList = function (el) {
+    if (!confirm('Delete this list and everything in it?')) return;
+    var id = el.dataset.id; db.listItems = db.listItems.filter(function (i) { return i.list !== id; }); ui.listId = ''; removeById('lists', id);
+  };
+
+  /* ---------- Routines: checklists that start fresh every day ---------- */
+  screens.routines = function () {
+    var t = today(), rs = sortByOrder(db.routines);
+    var html = head('Routines', 'Step-by-step checklists that start fresh every day.', '<button class="btn ghost" data-act="newRoutine">+ Routine</button>');
+    if (!rs.length) return html + '<div class="empty">No routines yet.<div class="btn-row" style="justify-content:center;margin-top:10px"><button class="tiny-btn" data-act="newRoutine" data-name="Morning">+ Morning</button><button class="tiny-btn" data-act="newRoutine" data-name="Evening">+ Evening</button></div></div>';
+    return html + rs.map(function (r) {
+      var log = r.log[t] || {}, n = r.steps.filter(function (s) { return log[s.id]; }).length;
+      return section(r.name, n + '/' + r.steps.length, '<button class="link-btn" data-act="editRoutine" data-id="' + esc(r.id) + '">Edit</button>') +
+        (r.steps.length ? '<div class="list">' + r.steps.map(function (s) { return checkRow(!!log[s.id], 'routineStep', r.id + '|' + s.id, s.text, '<span class="task-body"><span class="task-title">' + esc(s.text) + '</span></span>'); }).join('') + '</div>' : '<div class="empty">Add steps with Edit.</div>');
+    }).join('');
+  };
+  function routineForm(r, name) {
+    itemSheet({ title: r ? 'Edit routine' : 'New routine', form: 'routine', id: r && r.id, del: 'deleteRoutine',
+      fields: fieldIn('name', 'Name', r ? r.name : (name || ''), ' required' + (r ? '' : ' autofocus')) +
+        '<label class="field"><span>Steps, one per line</span><textarea name="steps" rows="7" placeholder="Glass of water&#10;Stretch 10 min&#10;Plan the day">' + esc(r ? r.steps.map(function (s) { return s.text; }).join('\n') : '') + '</textarea></label>' });
+  }
+  actions.newRoutine = function (el) { routineForm(null, el && el.dataset ? el.dataset.name : ''); };
+  actions.editRoutine = function (el) { var r = byId(db.routines, el.dataset.id); if (r) routineForm(r); };
+  submitters.routine = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#itemErr').textContent = 'Name the routine.'; return; }
+    var r = form.dataset.id ? byId(db.routines, form.dataset.id) : { id: 'rt_' + uid(), order: nextOrder(db.routines), steps: [], log: {} };
+    var old = r.steps;
+    r.name = name;
+    r.steps = form.elements.steps.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean).map(function (text) {
+      var same = old.filter(function (s) { return s.text === text; })[0];
+      return same || { id: 'st_' + uid(), text: text };
+    });
+    if (!form.dataset.id) db.routines.push(r);
+    save(); closeSheet(); render();
+  };
+  actions.deleteRoutine = function (el) { if (confirm('Delete this routine?')) removeById('routines', el.dataset.id); };
+  actions.routineStep = function (el) {
+    var p = el.dataset.id.split('|'), r = byId(db.routines, p[0]), t = today(); if (!r) return;
+    var log = r.log[t] = r.log[t] || {};
+    if (log[p[1]]) delete log[p[1]]; else log[p[1]] = true;
+    save(); render();
+    if (r.steps.length && r.steps.every(function (s) { return log[s.id]; })) toast(r.name + ' routine done');
+  };
+
+  /* ---------- Places visited: countries, US national parks, top destinations ---------- */
+  var COUNTRY_CODES = ('AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PA PG PY PE PH PL PT QA RO RU RW KN LC VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA SS ES LK SD SR SE CH SY TJ TZ TH TL TG TO TT TN TR TM TV UG UA AE GB US UY UZ VU VE VN YE ZM ZW VA PS TW XK HK MO PR').split(' ');
+  var US_PARKS = ['Acadia', 'American Samoa', 'Arches', 'Badlands', 'Big Bend', 'Biscayne', 'Black Canyon of the Gunnison', 'Bryce Canyon', 'Canyonlands', 'Capitol Reef', 'Carlsbad Caverns', 'Channel Islands', 'Congaree', 'Crater Lake', 'Cuyahoga Valley', 'Death Valley', 'Denali', 'Dry Tortugas', 'Everglades', 'Gates of the Arctic', 'Gateway Arch', 'Glacier', 'Glacier Bay', 'Grand Canyon', 'Grand Teton', 'Great Basin', 'Great Sand Dunes', 'Great Smoky Mountains', 'Guadalupe Mountains', 'Haleakalā', 'Hawaiʻi Volcanoes', 'Hot Springs', 'Indiana Dunes', 'Isle Royale', 'Joshua Tree', 'Katmai', 'Kenai Fjords', 'Kings Canyon', 'Kobuk Valley', 'Lake Clark', 'Lassen Volcanic', 'Mammoth Cave', 'Mesa Verde', 'Mount Rainier', 'New River Gorge', 'North Cascades', 'Olympic', 'Petrified Forest', 'Pinnacles', 'Redwood', 'Rocky Mountain', 'Saguaro', 'Sequoia', 'Shenandoah', 'Theodore Roosevelt', 'Virgin Islands', 'Voyageurs', 'White Sands', 'Wind Cave', 'Wrangell–St. Elias', 'Yellowstone', 'Yosemite', 'Zion'];
+  var TOP_PLACES = ['Amalfi Coast', 'Amsterdam', 'Angkor Wat', 'Bali', 'Banff', 'Bangkok', 'Barcelona', 'Bora Bora', 'Budapest', 'Cancún & Tulum', 'Cape Town', 'Dubai', 'Dubrovnik', 'Edinburgh', 'Florence', 'Galápagos Islands', 'Grand Canyon', 'Great Barrier Reef', 'Great Wall of China', 'Ha Long Bay', 'Havana', 'Hawaii', 'Hong Kong', 'Iceland', 'Istanbul', 'Kyoto', 'Lisbon', 'London', 'Machu Picchu', 'Maldives', 'Marrakech', 'New York City', 'Paris', 'Patagonia', 'Petra', 'Prague', 'Pyramids of Giza', 'Rio de Janeiro', 'Rome', 'Santorini', 'Serengeti', 'Seoul', 'Singapore', 'Swiss Alps', 'Sydney', 'Taj Mahal', 'Tokyo', 'Vancouver', 'Venice', 'Vienna'];
+  var regionNames = null; try { regionNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { /* old browser */ }
+  function countryName(c) { try { return (regionNames && regionNames.of(c)) || c; } catch (e) { return c; } }
+  function flag(c) { return c.replace(/./g, function (ch) { return String.fromCodePoint(127397 + ch.charCodeAt(0)); }); }
+  var VISITED_TABS = [['countries', 'Countries'], ['parks', 'US national parks'], ['places', 'Top destinations']];
+  ui.visitedTab = 'countries';
+  function visitedRows(kind) {
+    if (kind === 'countries') return COUNTRY_CODES.map(function (c) { return { key: c, name: countryName(c), icon: flag(c) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var base = kind === 'parks' ? US_PARKS : TOP_PLACES;
+    var extra = Object.keys(db.visited[kind]).filter(function (k) { return base.indexOf(k) < 0; });
+    return base.concat(extra).sort(function (a, b) { return a.localeCompare(b); }).map(function (n) { return { key: n, name: n, icon: '' }; });
+  }
+  screens.visited = function () {
+    var k = ui.visitedTab, V = db.visited[k], rows = visitedRows(k);
+    var total = k === 'places' ? null : rows.length, n = Object.keys(V).length;
+    var html = head('Places visited', VISITED_TABS.map(function (x) { return Object.keys(db.visited[x[0]]).length + ' ' + x[1].toLowerCase(); }).join(' · '));
+    html += '<div class="seg" role="group" aria-label="Which list">' + VISITED_TABS.map(function (x) { return '<button data-act="visitedTab" data-v="' + x[0] + '" aria-pressed="' + (x[0] === k) + '">' + (x[0] === 'parks' ? 'US parks' : x[1].replace('Top destinations', 'Top places')) + '</button>'; }).join('') + '</div>';
+    html += '<div class="visit-sum"><strong>' + n + '</strong>' + (total ? ' of ' + total : '') + ' visited' + (total ? '<span class="vbar"><i style="width:' + Math.round(100 * n / total) + '%"></i></span>' : '') + '</div>';
+    html += '<input class="input search" type="search" placeholder="Find" data-vfilter aria-label="Find in the list">';
+    function row(r) { var on = !!V[r.key]; return '<div data-vname="' + esc(r.name.toLowerCase()) + '">' + checkRow(on, 'visitToggle', r.key, (on ? 'Unmark ' : 'Mark visited: ') + r.name, '<span class="task-body"><span class="task-title">' + (r.icon ? r.icon + ' ' : '') + esc(r.name) + '</span>' + (on && V[r.key] !== true ? '<span class="meta"><span>' + esc(fmtDate(V[r.key], { full: true })) + '</span></span>' : '') + '</span>') + '</div>'; }
+    var seen = rows.filter(function (r) { return V[r.key]; }), rest = rows.filter(function (r) { return !V[r.key]; });
+    if (seen.length) html += section('Visited', seen.length) + '<div class="list vlist">' + seen.map(row).join('') + '</div>';
+    html += section('Not yet', rest.length) + '<div class="list vlist">' + rest.map(row).join('') + '</div>';
+    if (k !== 'countries') html += '<form class="quick-add" data-form="visitAdd" novalidate autocomplete="off"><input class="input" name="name" placeholder="Add a place that isn’t listed" aria-label="New place"><button class="btn" type="submit">Add</button></form>';
+    return html;
+  };
+  actions.visitedTab = function (el) { ui.visitedTab = el.dataset.v; render(true); };
+  actions.visitToggle = function (el) { var V = db.visited[ui.visitedTab], k = el.dataset.id; if (V[k]) delete V[k]; else V[k] = today(); save(); render(); };
+  submitters.visitAdd = function (form) { var n = val(form, 'name'); if (!n) return; db.visited[ui.visitedTab][n] = today(); save(); render(); toast('Added: ' + n); };
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-vfilter')) return;
+    var q = e.target.value.trim().toLowerCase();
+    $all('#screen [data-vname]').forEach(function (r) { r.hidden = !!q && r.dataset.vname.indexOf(q) < 0; });
+  });
+
+  /* ---------- Message inboxes: places to check every day ---------- */
+  screens.inboxes = function () {
+    var t = today(), xs = sortByOrder(db.inboxes), n = xs.filter(function (x) { return x.checked[t]; }).length;
+    var html = head('Message inboxes', 'Where messages arrive. Tick each one when you’ve checked it today.', '<button class="btn ghost" data-act="newInbox">+ Place</button>');
+    if (!xs.length) return html + '<div class="empty">Add the places you check: Gmail, Telegram, WhatsApp, Instagram DMs, work Slack…</div>';
+    html += section('Checked today', n + '/' + xs.length);
+    return html + '<div class="list">' + xs.map(function (x) {
+      return checkRow(!!x.checked[t], 'inboxCheck', x.id, 'Checked ' + x.name, '<button class="task-body" data-act="editInbox" data-id="' + esc(x.id) + '"><span class="task-title">' + esc(x.name) + '</span>' + (x.note ? '<span class="meta"><span>' + esc(x.note) + '</span></span>' : '') + '</button>',
+        x.link ? '<a class="tiny-btn link-tiny" href="' + esc(x.link) + '" target="_blank" rel="noopener noreferrer" data-inbox-open="' + esc(x.id) + '">Open</a>' : '');
+    }).join('') + '</div>';
+  };
+  function inboxForm(x) {
+    itemSheet({ title: x ? 'Edit place' : 'New place to check', form: 'inbox', id: x && x.id, del: 'deleteInbox',
+      fields: fieldIn('name', 'Name', x && x.name, ' required autofocus placeholder="Work email"') + fieldIn('link', 'Link (optional)', x && x.link, ' inputmode="url" autocapitalize="off" placeholder="https://mail.google.com, tg://, whatsapp://"') + fieldIn('note', 'Note', x && x.note, ' placeholder="Which account"') });
+  }
+  actions.newInbox = function () { inboxForm(null); };
+  actions.editInbox = function (el) { var x = byId(db.inboxes, el.dataset.id); if (x) inboxForm(x); };
+  submitters.inbox = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#itemErr').textContent = 'Name the place.'; return; }
+    var x = form.dataset.id ? byId(db.inboxes, form.dataset.id) : { id: 'ib_' + uid(), order: nextOrder(db.inboxes), checked: {} };
+    var link = val(form, 'link'); x.name = name; x.link = link ? (/^[a-z][a-z0-9+.-]*:/i.test(link) ? link : normUrl(link)) : ''; x.note = val(form, 'note');
+    if (!form.dataset.id) db.inboxes.push(x);
+    save(); closeSheet(); render();
+  };
+  actions.deleteInbox = function (el) { removeById('inboxes', el.dataset.id); };
+  actions.inboxCheck = function (el) { var x = byId(db.inboxes, el.dataset.id), t = today(); if (!x) return; if (x.checked[t]) delete x.checked[t]; else x.checked[t] = true; save(); render(); };
+  /* Opening a place marks it checked; the link still opens normally. */
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('[data-inbox-open]'); if (!a) return;
+    var x = byId(db.inboxes, a.dataset.inboxOpen), t = today(); if (x && !x.checked[t]) { x.checked[t] = true; save(); setTimeout(render, 300); }
+  });
+
+  /* ---------- Copy-paste data ---------- */
+  ui.snipQuery = '';
+  screens.snippets = function () {
+    var q = ui.snipQuery.trim().toLowerCase();
+    var xs = db.snippets.filter(function (s) { return !q || (s.label + ' ' + s.value).toLowerCase().indexOf(q) >= 0; }).sort(function (a, b) { return (b.usedAt || b.createdAt || 0) - (a.usedAt || a.createdAt || 0); });
+    var html = head('Copy-paste data', 'Text you paste often. Tap Copy.', '<button class="btn ghost" data-act="newSnippet">+ Add</button>');
+    html += '<div class="notice" style="margin-bottom:12px">Not encrypted. Keep passwords, card numbers and documents in Safe Storage.</div>';
+    if (db.snippets.length > 6) html += '<input class="input search" type="search" placeholder="Search" data-snipq value="' + esc(ui.snipQuery) + '" aria-label="Search copy-paste data">';
+    if (!db.snippets.length) return html + '<div class="empty">Add things like your address, company details, IBAN for invoices, email signature, a standard reply.</div>';
+    return html + '<div class="list" id="snipList">' + xs.map(function (s) {
+      return '<div class="bm"><button class="media-body" data-act="editSnippet" data-id="' + esc(s.id) + '"><strong>' + esc(s.label) + '</strong><span class="muted small snip-val">' + esc(s.value) + '</span></button><button class="tiny-btn" data-act="copySnippet" data-id="' + esc(s.id) + '">Copy</button></div>';
+    }).join('') + '</div>';
+  };
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-snipq')) return;
+    ui.snipQuery = e.target.value; var tmp = document.createElement('div'); tmp.innerHTML = screens.snippets(); var a = $('#snipList'), b = tmp.querySelector('#snipList'); if (a && b) a.innerHTML = b.innerHTML;
+  });
+  function snippetForm(s) {
+    itemSheet({ title: s ? 'Edit' : 'New copy-paste item', form: 'snippet', id: s && s.id, del: 'deleteSnippet',
+      fields: fieldIn('label', 'Name', s && s.label, ' required autofocus placeholder="Home address"') + '<label class="field"><span>Text to copy</span><textarea name="value" rows="5" required>' + esc(s ? s.value : '') + '</textarea></label>' });
+  }
+  actions.newSnippet = function () { snippetForm(null); };
+  actions.editSnippet = function (el) { var s = byId(db.snippets, el.dataset.id); if (s) snippetForm(s); };
+  submitters.snippet = function (form) {
+    var label = val(form, 'label'), value = form.elements.value.value; if (!label || !value.trim()) { $('#itemErr').textContent = 'Add a name and the text.'; return; }
+    var s = form.dataset.id ? byId(db.snippets, form.dataset.id) : { id: 'sn_' + uid(), createdAt: Date.now() };
+    s.label = label; s.value = value; if (!form.dataset.id) db.snippets.push(s);
+    save(); closeSheet(); render();
+  };
+  actions.deleteSnippet = function (el) { removeById('snippets', el.dataset.id); };
+  actions.copySnippet = function (el) {
+    var s = byId(db.snippets, el.dataset.id); if (!s) return;
+    Promise.resolve(copyText(s.value)).then(function () { s.usedAt = Date.now(); save(); toast('Copied: ' + s.label); }, function () { toast('Copy failed. Open the item and copy by hand.'); });
+  };
+
+  /* ---------- My social media ---------- */
+  var SOCIAL = [['Instagram', 'https://instagram.com/'], ['Telegram', 'https://t.me/'], ['WhatsApp', 'https://wa.me/'], ['Facebook', 'https://facebook.com/'], ['X', 'https://x.com/'], ['LinkedIn', 'https://linkedin.com/in/'], ['YouTube', 'https://youtube.com/@'], ['TikTok', 'https://tiktok.com/@'], ['Threads', 'https://threads.net/@'], ['VK', 'https://vk.com/'], ['Other', '']];
+  function socialUrl(s) {
+    if (s.url) return s.url;
+    var p = SOCIAL.filter(function (x) { return x[0] === s.platform; })[0], h = (s.handle || '').replace(/^@/, '').trim();
+    if (!p || !p[1] || !h) return '';
+    return p[1] + (s.platform === 'WhatsApp' ? h.replace(/\D/g, '') : h);
+  }
+  screens.socials = function () {
+    var html = head('My social media', 'Your own accounts: handles and links in one place.', '<button class="btn ghost" data-act="newSocial">+ Account</button>');
+    if (!db.socials.length) return html + '<div class="empty">Add your Instagram, Telegram, LinkedIn and other accounts. Passwords go to Safe Storage.</div>';
+    return html + '<div class="list">' + sortByOrder(db.socials).map(function (s) {
+      var u = socialUrl(s);
+      return '<div class="bm"><button class="media-body" data-act="editSocial" data-id="' + esc(s.id) + '"><strong>' + esc(s.platform) + (s.handle ? ' · ' + esc(s.handle) : '') + '</strong><span class="muted small">' + esc(s.note || (u ? host(u) : '')) + '</span></button>' +
+        '<button class="tiny-btn" data-act="copySocial" data-id="' + esc(s.id) + '">Copy</button>' + (u ? '<a class="tiny-btn link-tiny" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">Open</a>' : '') + '</div>';
+    }).join('') + '</div>';
+  };
+  function socialForm(s) {
+    itemSheet({ title: s ? 'Edit account' : 'New account', form: 'social', id: s && s.id, del: 'deleteSocial',
+      fields: '<label class="field"><span>Network</span><select name="platform">' + options(SOCIAL.map(function (x) { return x[0]; }), s ? s.platform : 'Instagram') + '</select></label>' +
+        fieldIn('handle', 'Username or phone', s && s.handle, ' autocapitalize="off" placeholder="@alex"') + fieldIn('url', 'Link (optional)', s && s.url, ' inputmode="url" autocapitalize="off" placeholder="Filled in from the username"') + fieldIn('note', 'Note', s && s.note, ' placeholder="Personal, business, Betterplace…"') });
+  }
+  actions.newSocial = function () { socialForm(null); };
+  actions.editSocial = function (el) { var s = byId(db.socials, el.dataset.id); if (s) socialForm(s); };
+  submitters.social = function (form) {
+    var handle = val(form, 'handle'), url = val(form, 'url'); if (!handle && !url) { $('#itemErr').textContent = 'Add a username or a link.'; return; }
+    var s = form.dataset.id ? byId(db.socials, form.dataset.id) : { id: 'so_' + uid(), order: nextOrder(db.socials) };
+    Object.assign(s, { platform: val(form, 'platform'), handle: handle, url: url ? normUrl(url) : '', note: val(form, 'note') });
+    if (!form.dataset.id) db.socials.push(s);
+    save(); closeSheet(); render();
+  };
+  actions.deleteSocial = function (el) { removeById('socials', el.dataset.id); };
+  actions.copySocial = function (el) { var s = byId(db.socials, el.dataset.id); if (!s) return; var v = socialUrl(s) || s.handle; Promise.resolve(copyText(v)).then(function () { toast('Copied'); }, function () { toast('Copy failed'); }); };
+
+  /* ---------- Diary: how the day went ---------- */
+  var MOODS = [[1, '😢', 'Very sad'], [2, '🙁', 'Sad'], [3, '😐', 'Neutral'], [4, '🙂', 'Happy'], [5, '😄', 'Very happy']];
+  function moodOf(n) { return MOODS.filter(function (m) { return m[0] === n; })[0]; }
+  ui.diaryMonth = today().slice(0, 7);
+  screens.diary = function () {
+    var t = today(), mon = ui.diaryMonth, e = db.diary[t];
+    var html = head('Diary', 'Rate each day and write a line about it.');
+    html += '<div class="card pad diary-today"><div class="row between"><strong>Today</strong><span class="muted small">' + esc(fmtDate(t, { full: true })) + '</span></div>' + moodPicker(t, e && e.mood) +
+      '<button class="tiny-btn" style="margin-top:10px" data-act="diaryOpen" data-d="' + t + '">' + (e && e.note ? 'Edit note' : 'Write a note') + '</button>' + (e && e.note ? '<p class="diary-note">' + esc(e.note) + '</p>' : '') + '</div>';
+    var y = +mon.slice(0, 4), m = +mon.slice(5, 7), first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate(), lead = (first.getDay() + 6) % 7;
+    var label = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    var rated = [], cells = '';
+    for (var i = 0; i < lead; i++) cells += '<span></span>';
+    for (var d = 1; d <= days; d++) {
+      var key = mon + '-' + pad(d), x = db.diary[key], mm = x && moodOf(x.mood); if (mm) rated.push(x.mood);
+      cells += '<button class="dcell' + (key === t ? ' today' : '') + (key > t ? ' future' : '') + '" data-act="diaryOpen" data-d="' + key + '"' + (key > t ? ' disabled' : '') + ' aria-label="' + esc(fmtDate(key, { full: true }) + (mm ? ': ' + mm[2] : '')) + '"><span class="dn">' + d + '</span><span class="de">' + (mm ? mm[1] : (x && x.note ? '✎' : '')) + '</span></button>';
+    }
+    var avg = rated.length ? rated.reduce(function (a, b) { return a + b; }, 0) / rated.length : 0;
+    html += '<div class="row between" style="margin:18px 0 8px"><button class="icon-btn" data-act="diaryMonth" data-d="-1" aria-label="Previous month">‹</button><strong>' + esc(label) + '</strong><button class="icon-btn" data-act="diaryMonth" data-d="1" aria-label="Next month"' + (mon >= t.slice(0, 7) ? ' disabled' : '') + '>›</button></div>';
+    html += '<div class="dgrid">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(function (w) { return '<span class="dw">' + w + '</span>'; }).join('') + cells + '</div>';
+    html += '<p class="muted small" style="margin-top:10px">' + (rated.length ? rated.length + ' days rated · average ' + moodOf(Math.round(avg))[1] + ' ' + avg.toFixed(1) + ' of 5' : 'No days rated this month.') + '</p>';
+    var notes = Object.keys(db.diary).filter(function (k) { return k.slice(0, 7) === mon && db.diary[k].note; }).sort().reverse();
+    if (notes.length) html += section('Notes', notes.length) + notes.map(function (k) { var x = db.diary[k], mm = moodOf(x.mood); return '<button class="card pad diary-entry" data-act="diaryOpen" data-d="' + k + '"><span class="muted small">' + (mm ? mm[1] + ' ' : '') + esc(fmtDate(k, { full: true })) + '</span><span class="diary-note">' + esc(x.note) + '</span></button>'; }).join('');
+    return html;
+  };
+  function moodPicker(date, cur) {
+    return '<div class="moods" role="group" aria-label="How was the day">' + MOODS.map(function (m) { return '<button type="button" class="mood" data-act="diaryMood" data-d="' + date + '" data-v="' + m[0] + '" aria-pressed="' + (cur === m[0]) + '" aria-label="' + m[2] + '"><span>' + m[1] + '</span></button>'; }).join('') + '</div>';
+  }
+  function diaryForm(date) {
+    var e = db.diary[date] || {};
+    openSheet(fmtDate(date, { full: true }), '<form data-form="diary" data-d="' + date + '" novalidate>' + moodPicker(date, e.mood) +
+      '<label class="field" style="margin-top:12px"><span>How did it go?</span><textarea name="note" rows="6" placeholder="What went well, what didn’t, what you’re grateful for">' + esc(e.note || '') + '</textarea></label>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (db.diary[date] ? '<button type="button" class="btn danger block" data-act="diaryDelete" data-d="' + date + '">Delete entry</button>' : '') + '</div></form>');
+  }
+  actions.diaryOpen = function (el) { diaryForm(el.dataset.d); };
+  actions.diaryMood = function (el) {
+    var d = el.dataset.d, e = db.diary[d] = db.diary[d] || {}, v = +el.dataset.v;
+    e.mood = e.mood === v ? 0 : v; e.at = Date.now(); if (!e.mood && !e.note) delete db.diary[d];
+    save();
+    var box = el.closest('.moods'); if (box) $all('.mood', box).forEach(function (b) { b.setAttribute('aria-pressed', String(+b.dataset.v === (e.mood || -1))); });
+    if (!sheetOpen()) render(); else if (ui.route.name === 'diary' || ui.route.name === 'home') setTimeout(function () { if (!sheetOpen()) render(); }, 0);
+  };
+  submitters.diary = function (form) {
+    var d = form.dataset.d, note = form.elements.note.value.trim(), e = db.diary[d] = db.diary[d] || {};
+    e.note = note; e.at = Date.now(); if (!e.mood && !note) delete db.diary[d];
+    save(); closeSheet(); render(); toast('Saved');
+  };
+  actions.diaryDelete = function (el) { delete db.diary[el.dataset.d]; save(); closeSheet(); render(); };
+  actions.diaryMonth = function (el) {
+    var p = ui.diaryMonth.split('-').map(Number), dt = new Date(p[0], p[1] - 1 + (+el.dataset.d), 1);
+    ui.diaryMonth = dt.getFullYear() + '-' + pad(dt.getMonth() + 1); render();
+  };
+
+  /* ---------- Feature requests for Focus itself ---------- */
+  screens.features = function () {
+    var open = db.features.filter(function (f) { return !f.done; }).sort(function (a, b) { return a.createdAt - b.createdAt; }), done = db.features.filter(function (f) { return f.done; });
+    var html = head('Feature requests', 'Ideas for Focus. Bring them to the next update.');
+    html += '<div class="list">' + open.map(function (f) { return checkRow(false, 'featureToggle', f.id, 'Mark done', '<button class="task-body" data-act="editFeature" data-id="' + esc(f.id) + '"><span class="task-title">' + esc(f.text) + '</span><span class="meta"><span>' + esc(fmtDate(ymd(new Date(f.createdAt)), { full: true })) + '</span></span></button>'); }).join('') + '</div>';
+    html += '<form class="quick-add" data-form="feature" novalidate autocomplete="off"><input class="input" id="featAddIn" name="text" placeholder="New idea" aria-label="New idea"><button class="btn" type="submit">Add</button></form>';
+    if (open.length) html += '<button class="btn ghost block" style="margin-top:10px" data-act="copyFeatures">Copy the list for Claude</button>';
+    if (done.length) html += section('Done', done.length) + '<div class="list">' + done.map(function (f) { return checkRow(true, 'featureToggle', f.id, 'Reopen', '<button class="task-body" data-act="editFeature" data-id="' + esc(f.id) + '"><span class="task-title">' + esc(f.text) + '</span></button>'); }).join('') + '</div>';
+    return html;
+  };
+  submitters.feature = function (form) { var t = val(form, 'text'); if (!t) return; db.features.push({ id: 'fq_' + uid(), text: t, done: false, createdAt: Date.now() }); save(); render(); var i = $('#featAddIn'); if (i) i.focus(); };
+  actions.featureToggle = function (el) { var f = byId(db.features, el.dataset.id); if (f) { f.done = !f.done; save(); render(); } };
+  actions.editFeature = function (el) { var f = byId(db.features, el.dataset.id); if (f) itemSheet({ title: 'Edit idea', form: 'featureEdit', id: f.id, del: 'deleteFeature', fields: '<label class="field"><span>Idea</span><textarea name="text" rows="4" required>' + esc(f.text) + '</textarea></label>' }); };
+  submitters.featureEdit = function (form) { var f = byId(db.features, form.dataset.id), t = form.elements.text.value.trim(); if (!f || !t) return; f.text = t; save(); closeSheet(); render(); };
+  actions.deleteFeature = function (el) { removeById('features', el.dataset.id); };
+  actions.copyFeatures = function () {
+    var txt = 'Focus feature requests:\n' + db.features.filter(function (f) { return !f.done; }).map(function (f, i) { return (i + 1) + '. ' + f.text; }).join('\n');
+    Promise.resolve(copyText(txt)).then(function () { toast('Copied. Paste it into the chat.'); }, function () { toast('Copy failed'); });
+  };
+
+  /* ---------- Watch · Read · Listen: just a title and an optional link ---------- */
+  function guessMediaType(link, fallback) {
+    var h = link ? host(link) : '';
+    if (/youtube|youtu\.be/.test(h)) return 'YouTube';
+    if (/spotify|music\.apple|music\.yandex|soundcloud/.test(h)) return /podcast|episode|show/.test(link) ? 'Podcast' : 'Music';
+    if (/kinopoisk|imdb|netflix|letterboxd/.test(h)) return 'Movie';
+    if (/litres|goodreads|amazon\.|books\.google/.test(h)) return 'Book';
+    return fallback || 'Movie';
+  }
+  var _media7 = screens.media;
+  screens.media = function () {
+    var html = _media7();
+    var add = '<form class="quick-add media-add" data-form="mediaQuick" novalidate autocomplete="off"><input class="input" name="title" placeholder="Title or paste a link" aria-label="Title"><input class="input" name="link" placeholder="Link (optional)" inputmode="url" autocapitalize="off" aria-label="Link"><button class="btn" type="submit">Add</button></form>';
+    return html.replace('<div class="seg"', add + '<div class="seg"');
+  };
+  submitters.mediaQuick = function (form) {
+    var title = val(form, 'title'), link = val(form, 'link');
+    if (/^https?:\/\/\S+$/i.test(title) && !link) { link = title; title = ''; }
+    if (!title && !link) return;
+    link = link ? normUrl(link) : '';
+    if (!title) title = host(link);
+    db.media.push({ id: 'md_' + uid(), createdAt: Date.now(), title: title, type: guessMediaType(link, ui.mediaType), status: 'To do', link: link, by: '', note: '' });
+    ui.mediaStatus = 'To do'; save(); render(); toast('Added');
+    var f = $('#screen form[data-form=mediaQuick] input'); if (f) f.focus();
+  };
+  /* The edit form no longer asks for an author. */
+  var _editMedia7 = actions.editMedia;
+  actions.editMedia = function (el) { _editMedia7(el); var by = $('#sheet input[name=by]'); if (by && !by.value) by.closest('.field').remove(); };
+  var _newMedia7 = actions.newMedia;
+  actions.newMedia = function () { _newMedia7(); var by = $('#sheet input[name=by]'); if (by) by.closest('.field').remove(); };
+
+  /* ---------- Calculator ---------- */
+  function calcEval(s) {
+    var toks = String(s).replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/,/g, '.').match(/\d*\.?\d+(?:e[+-]?\d+)?|[-+*/%()]/gi);
+    if (!toks) return NaN;
+    var i = 0;
+    function peek() { return toks[i]; }
+    function num() {
+      var t = toks[i++];
+      if (t === '-') return -num(); if (t === '+') return num();
+      if (t === '(') { var v = add(); if (toks[i] === ')') i++; return v; }
+      var n = parseFloat(t); if (isNaN(n)) throw new Error('bad');
+      if (peek() === '%') { i++; n = n / 100; }
+      return n;
+    }
+    function mul() { var v = num(); while (peek() === '*' || peek() === '/') { var o = toks[i++], r = num(); v = o === '*' ? v * r : v / r; } return v; }
+    function add() { var v = mul(); while (peek() === '+' || peek() === '-') { var o = toks[i++], r = mul(); v = o === '+' ? v + r : v - r; } return v; }
+    try { var out = add(); return i === toks.length ? out : NaN; } catch (e) { return NaN; }
+  }
+  function calcFmt(n) { if (!isFinite(n)) return 'Error'; var r = Math.round(n * 1e10) / 1e10; return Math.abs(r) >= 1e15 ? r.toExponential(6) : r.toLocaleString('en-US', { maximumFractionDigits: 10 }); }
+  ui.calc = '';
+  actions.openCalc = function () {
+    var keys = ['C', '⌫', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '−', '1', '2', '3', '+', '(', '0', '.', '='];
+    openSheet('Calculator', '<div class="calc"><div class="calc-in" id="calcIn" aria-live="polite">' + esc(ui.calc || '0') + '</div><div class="calc-out muted" id="calcOut"></div>' +
+      '<div class="calc-keys">' + keys.map(function (k) { return '<button type="button" class="calc-key' + (/[÷×−+=]/.test(k) ? ' op' : '') + (k === '=' ? ' eq' : '') + '" data-calc="' + k + '">' + k + '</button>'; }).join('') + '</div>' +
+      '<button type="button" class="btn ghost block" style="margin-top:10px" data-act="calcCopy">Copy result</button></div>');
+    calcShow();
+  };
+  function calcShow() {
+    var a = $('#calcIn'), b = $('#calcOut'); if (!a) return;
+    a.textContent = ui.calc || '0';
+    var v = calcEval(ui.calc); b.textContent = ui.calc && /[-+×÷*/%−]/.test(ui.calc.slice(1)) && isFinite(v) ? '= ' + calcFmt(v) : '';
+  }
+  function calcKey(k) {
+    if (k === 'C') ui.calc = '';
+    else if (k === '⌫') ui.calc = ui.calc.slice(0, -1);
+    else if (k === '=') { var v = calcEval(ui.calc); ui.calc = isFinite(v) ? String(Math.round(v * 1e10) / 1e10) : ui.calc; }
+    else if (k === '(') ui.calc += /[\d.)]$/.test(ui.calc) ? ')' : '(';
+    else ui.calc += k;
+    calcShow();
+  }
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-calc]'); if (b) { e.preventDefault(); calcKey(b.dataset.calc); } });
+  document.addEventListener('keydown', function (e) {
+    if (!$('#calcIn') || e.target.matches('input, textarea')) return;
+    var map = { '*': '×', '/': '÷', '-': '−', Enter: '=', Backspace: '⌫', Escape: null };
+    var k = e.key in map ? map[e.key] : e.key; if (k === null) return;
+    if (/^[\d.+%()×÷−=⌫]$/.test(k) || k === '⌫') { e.preventDefault(); calcKey(k === ')' ? '(' : k); }
+  });
+  actions.calcCopy = function () { var v = calcEval(ui.calc); Promise.resolve(copyText(isFinite(v) ? String(Math.round(v * 1e10) / 1e10) : ui.calc)).then(function () { toast('Copied'); }); };
+
+  /* ---------- Home widgets: more rates, weather and traffic where you are, indices, calculator ---------- */
+  refreshMarket = function (force) {
+    var c = readCache('focus.market');
+    if (!force && c && c.v === 3 && Date.now() - c.t < FRESH) return Promise.resolve(c);
+    return fetchJson('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,tether&vs_currencies=usd,rub,idr,eur,aud&include_24hr_change=true').then(function (j) {
+      var T = j.tether, tu = T.usd || 1;
+      var m = { v: 3, t: Date.now(), btcUsd: j.bitcoin.usd, btcChg: j.bitcoin.usd_24h_change, usdtRub: T.rub, rubChg: T.rub_24h_change,
+        usdIdr: T.idr / tu, idrChg: T.idr_24h_change, eurUsd: T.eur ? tu / T.eur : null, eurChg: T.eur_24h_change == null ? null : -T.eur_24h_change, audUsd: T.aud ? tu / T.aud : null, audChg: T.aud_24h_change == null ? null : -T.aud_24h_change,
+        rates: { RUB: T.rub / tu, IDR: T.idr / tu, EUR: T.eur / tu } };
+      writeCache('focus.market', m); return m;
+    });
+  };
+  refreshWeather = function (force) {
+    var g = readCache('focus.geo'), c = readCache('focus.weather');
+    var lat = g ? g.lat : 55.7558, lon = g ? g.lon : 37.6173;
+    if (!force && c && Date.now() - c.t < FRESH && c.lat != null && Math.abs(c.lat - lat) < 0.2 && Math.abs(c.lon - lon) < 0.2) return Promise.resolve(c);
+    return fetchJson('https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lon.toFixed(3) + '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=ms&timezone=auto').then(function (j) {
+      var w = { t: Date.now(), lat: lat, lon: lon, here: !!g, temp: j.current.temperature_2m, feels: j.current.apparent_temperature, code: j.current.weather_code, wind: j.current.wind_speed_10m };
+      writeCache('focus.weather', w); return w;
+    });
+  };
+  function trafficHref(g) { return g ? 'https://www.google.com/maps/@' + g.lat.toFixed(4) + ',' + g.lon.toFixed(4) + ',13z/data=!5m1!1e1' : 'https://yandex.ru/maps/213/moscow/probki/'; }
+  widgetsHtml = function () {
+    var W = db.settings.widgets, m = readCache('focus.market'), w = readCache('focus.weather'), s = readCache('focus.sun'), g = readCache('focus.geo'), out = '';
+    if (m && m.v !== 3) m = null;
+    if (w && w.lat == null) w = null;
+    function tileW(lbl, id, v, sub) { return '<div class="widget"><span class="wl">' + lbl + '</span><span class="wv" id="' + id + '">' + v + '</span>' + sub + '</div>'; }
+    function link(lbl, v, sub, href) { return '<a class="widget" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer"><span class="wl">' + lbl + '</span><span class="wv">' + v + '</span><span class="wchg">' + sub + '</span></a>'; }
+    if (W.rates) {
+      out += tileW('USDT → RUB', 'wUsdt', m ? esc(m.usdtRub.toFixed(2)) + ' ₽' : '…', '<span id="wUsdtC">' + chg(m && m.rubChg) + '</span>');
+      out += tileW('USD → IDR', 'wIdr', m ? esc(Math.round(m.usdIdr).toLocaleString('en-US')) : '…', '<span id="wIdrC">' + chg(m && m.idrChg) + '</span>');
+      out += tileW('BTC → USD', 'wBtc', m ? esc(fmtMoney(Math.round(m.btcUsd), 'USD')) : '…', '<span id="wBtcC">' + chg(m && m.btcChg) + '</span>');
+      out += tileW('EUR → USD', 'wEur', m ? (m.eurUsd ? esc(m.eurUsd.toFixed(3)) : '—') : '…', '<span id="wEurC">' + chg(m && m.eurChg) + '</span>');
+      out += tileW('AUD → USD', 'wAud', m ? (m.audUsd ? esc(m.audUsd.toFixed(3)) : '—') : '…', '<span id="wAudC">' + chg(m && m.audChg) + '</span>');
+    }
+    if (W.weather) out += tileW(g ? 'Weather here' : 'Moscow', 'wTemp', w ? (w.temp > 0 ? '+' : '') + Math.round(w.temp) + '°' : '…', '<span class="wchg" id="wCond">' + (w ? esc(weatherText(w.code)) : '') + '</span>');
+    out += g ? tileW('Sun', 'wSun', s ? '☀︎ ' + esc(s.rise) : '…', '<span class="wchg" id="wSet">' + (s ? '☾ ' + esc(s.set) : '') + '</span>')
+      : '<button class="widget" data-act="enableGeo"><span class="wl">Sun · weather</span><span class="wv">☀︎</span><span class="wchg">Tap to use location</span></button>';
+    if (W.traffic) out += link('Traffic', g ? 'Here ↗' : 'MSK ↗', g ? 'Google Maps' : 'Yandex', trafficHref(g));
+    if (W.indices) { out += link('S&amp;P 500', 'SPX ↗', 'Google Finance', 'https://www.google.com/finance/quote/.INX:INDEXSP'); out += link('Dow Jones', 'DJI ↗', 'Google Finance', 'https://www.google.com/finance/quote/.DJI:INDEXDJX'); }
+    out += '<button class="widget" data-act="openCalc"><span class="wl">Calculator</span><span class="wv">±×÷</span><span class="wchg">Tap to open</span></button>';
+    return out ? '<div class="widgets">' + out + '</div>' : '';
+  };
+  var _enableGeo7 = actions.enableGeo;
+  actions.enableGeo = function () { _enableGeo7(); setTimeout(function () { if (readCache('focus.geo')) refreshWeather(true).then(function () { if (ui.route.name === 'home') render(); }).catch(function () { /* offline */ }); }, 1500); };
+  updateWidgets = function () {
+    if (ui.route.name !== 'home') return;
+    var W = db.settings.widgets;
+    function set(id, html) { var el = $('#' + id); if (el) el.innerHTML = html; }
+    if (W.rates) refreshMarket().then(function (m) {
+      set('wUsdt', esc(m.usdtRub.toFixed(2)) + ' ₽'); set('wUsdtC', chg(m.rubChg));
+      set('wIdr', esc(Math.round(m.usdIdr).toLocaleString('en-US'))); set('wIdrC', chg(m.idrChg));
+      set('wBtc', esc(fmtMoney(Math.round(m.btcUsd), 'USD'))); set('wBtcC', chg(m.btcChg));
+      set('wEur', m.eurUsd ? esc(m.eurUsd.toFixed(3)) : '—'); set('wEurC', chg(m.eurChg)); set('wAud', m.audUsd ? esc(m.audUsd.toFixed(3)) : '—'); set('wAudC', chg(m.audChg));
+    }).catch(function () { set('wUsdtC', '<span class="wchg">offline</span>'); });
+    if (W.weather) refreshWeather().then(function (w) { set('wTemp', (w.temp > 0 ? '+' : '') + Math.round(w.temp) + '°'); set('wCond', esc(weatherText(w.code))); }).catch(function () { /* keep cached */ });
+    if (readCache('focus.geo')) refreshSun().then(function (s) { set('wSun', '☀︎ ' + esc(s.rise)); set('wSet', '☾ ' + esc(s.set)); }).catch(function () { /* keep */ });
+  };
+
+  /* ---------- countdowns ---------- */
+  function countdowns() {
+    var now = new Date(), y = now.getFullYear(), mo = now.getMonth();
+    var sod = new Date(y, mo, now.getDate()), eod = new Date(y, mo, now.getDate() + 1);
+    var dow = (now.getDay() + 6) % 7, sow = new Date(y, mo, now.getDate() - dow), eow = new Date(y, mo, now.getDate() - dow + 7);
+    var out = [['Day', sod, eod], ['Week', sow, eow], ['Month', new Date(y, mo, 1), new Date(y, mo + 1, 1)], ['Year', new Date(y, 0, 1), new Date(y + 1, 0, 1)]];
+    var b = db.settings.birthDate;
+    if (b) { var p = b.split('-').map(Number); out.push(['80 years', new Date(p[0], p[1] - 1, p[2]), new Date(p[0] + 80, p[1] - 1, p[2])]); }
+    return out.map(function (c) {
+      var left = Math.max(0, c[2] - now), frac = Math.min(1, Math.max(0, (now - c[1]) / (c[2] - c[1]))), h = left / 3600000, d = h / 24, txt;
+      if (c[0] === 'Day') txt = Math.floor(h) + ' h ' + Math.floor((left / 60000) % 60) + ' min';
+      else if (c[0] === 'Week') txt = Math.floor(d) + ' d ' + Math.floor(h % 24) + ' h';
+      else if (c[0] === '80 years') txt = (d / 365.2425).toFixed(1) + ' years';
+      else txt = Math.ceil(d) + ' days';
+      return '<div class="cd"><span class="cd-l">' + esc(c[0]) + '</span><span class="cd-v">' + esc(txt) + '</span><span class="cd-bar" aria-label="' + Math.round(frac * 100) + '% passed"><i style="width:' + (frac * 100).toFixed(1) + '%"></i></span></div>';
+    }).join('') + (b ? '' : '<button class="cd cd-set" data-go="life"><span class="cd-l">80 years</span><span class="cd-v">Set birth date</span></button>');
+  }
+  setInterval(function () { var c = $('#countdowns'); if (c && !document.hidden) c.innerHTML = countdowns(); }, 30000);
+
+  /* ---------- Today: top 3 ---------- */
+  function focusIds() { var a = db.focus3[today()]; return Array.isArray(a) ? a.filter(function (id) { return byId(db.tasks, id); }) : []; }
+  function focus3Html() {
+    var ids = focusIds(), tasks = ids.map(function (id) { return byId(db.tasks, id); });
+    var html = section('Today — top 3', tasks.filter(function (x) { return x.done; }).length + '/' + (tasks.length || 3), '<button class="link-btn" data-act="pickFocus">' + (tasks.length ? 'Change' : 'Choose') + '</button>');
+    if (!tasks.length) return html + '<button class="empty focus-empty" data-act="pickFocus">Pick the three things that matter most today.</button>';
+    return html + '<div class="list">' + tasks.map(function (t) { return taskRow(t, { sortable: false }); }).join('') + '</div>';
+  }
+  actions.pickFocus = function () {
+    var t = today(), ids = focusIds();
+    var pool = db.tasks.filter(function (x) { return active(x) && (ids.indexOf(x.id) >= 0 || (x.date && x.date <= t) || x.priority === 'urgent' || x.priority === 'high' || x.list === 'inbox'); })
+      .sort(function (a, b) { return (ids.indexOf(b.id) >= 0) - (ids.indexOf(a.id) >= 0) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]; });
+    db.tasks.filter(function (x) { return ids.indexOf(x.id) >= 0 && pool.indexOf(x) < 0; }).forEach(function (x) { pool.unshift(x); });
+    openSheet('Today — top 3', '<p class="muted small" style="margin:0 0 10px">Choose up to three tasks. ' + (pool.length ? '' : 'Add tasks for today first.') + '</p><div class="list" id="focusPick">' + pool.slice(0, 40).map(function (x) {
+      var on = ids.indexOf(x.id) >= 0;
+      return '<div class="task"><span style="width:12px"></span><button class="check p-' + esc(x.priority) + '" role="checkbox" aria-checked="' + on + '" data-act="focusToggle" data-id="' + esc(x.id) + '" aria-label="' + esc(x.title) + '"><span class="box">' + ICON.tick + '</span></button><button class="task-body" data-act="focusToggle" data-id="' + esc(x.id) + '"><span class="task-title">' + esc(x.title) + '</span>' + (x.date ? '<span class="meta"><span>' + esc(fmtDate(x.date)) + '</span></span>' : '') + '</button></div>';
+    }).join('') + '</div><div class="actions"><button class="btn block" data-act="closeFocus">Done</button></div>');
+  };
+  actions.focusToggle = function (el) {
+    var t = today(), ids = focusIds(), id = el.dataset.id, i = ids.indexOf(id);
+    if (i >= 0) ids.splice(i, 1); else { if (ids.length >= 3) { toast('Three is the limit. Remove one first.'); return; } ids.push(id); }
+    db.focus3[t] = ids; Object.keys(db.focus3).forEach(function (k) { if (k < addDays(t, -30)) delete db.focus3[k]; });
+    save();
+    $all('#focusPick [data-act=focusToggle].check').forEach(function (b) { b.setAttribute('aria-checked', String(ids.indexOf(b.dataset.id) >= 0)); });
+  };
+  actions.closeFocus = function () { closeSheet(); render(); };
+
+  /* ---------- Readme mindset, balance hidden by default ---------- */
+  actions.editMindset = function () {
+    openSheet('Readme mindset', '<form data-form="mindset" novalidate><label class="field"><span>Principles to read every day</span><textarea name="text" rows="10" placeholder="I decide what matters today.&#10;Health first.&#10;One thing at a time.">' + esc(db.mindset) + '</textarea></label><div class="actions"><button class="btn block" type="submit">Save</button></div></form>');
+  };
+  submitters.mindset = function (form) { db.mindset = form.elements.text.value.trim(); save(); closeSheet(); render(); };
+  ui.showBal = false;
+  actions.toggleBal = function () { ui.showBal = !ui.showBal; var v = $('#homeBal'), b = $('#homeBalBtn'); if (v) v.innerHTML = balText(); if (b) b.setAttribute('aria-pressed', String(ui.showBal)); };
+  function balText() { return ui.showBal ? esc(fmtMoney(Math.round(balanceTotals(today(), db.settings.currency).net), db.settings.currency)) : '••••••'; }
+
+  /* ---------- global search ---------- */
+  ui.gq = '';
+  function hit(s, q) { return String(s || '').toLowerCase().indexOf(q) >= 0; }
+  function searchAll(q) {
+    q = q.trim().toLowerCase(); if (q.length < 2) return '';
+    var groups = [], cap = 8;
+    function add(title, rows) { if (rows.length) groups.push(section(title, rows.length) + '<div class="list">' + rows.slice(0, cap).join('') + '</div>' + (rows.length > cap ? '<p class="muted small">+' + (rows.length - cap) + ' more</p>' : '')); }
+    function r(attrs, title, sub) { return '<button class="search-hit" ' + attrs + '><span class="sh-t">' + esc(title) + '</span>' + (sub ? '<span class="sh-s">' + esc(sub) + '</span>' : '') + '</button>'; }
+    var tasks = db.tasks.filter(function (t) { return hit(t.title, q) || hit(t.notes, q); }).sort(function (a, b) { return a.done - b.done; });
+    add('Tasks', tasks.map(function (t) { return r('data-act="editTask" data-id="' + esc(t.id) + '"', (t.done ? '✓ ' : '') + t.title, t.date ? fmtDate(t.date, { full: true }) : ''); }));
+    add('Projects', db.projects.filter(function (p) { return hit(p.name, q); }).map(function (p) { return r('data-go="project" data-id="' + esc(p.id) + '"', p.name); }));
+    add('Notes', db.notes.filter(function (n) { return hit(n.title, q) || hit(n.body, q); }).map(function (n) { return r('data-go="note" data-id="' + esc(n.id) + '"', n.title || 'Note', (n.body || '').split('\n').filter(Boolean)[0] || ''); }));
+    add('Bookmarks', db.bookmarks.filter(function (b) { return hit(b.title, q) || hit(b.url, q) || hit(b.tag, q); }).map(function (b) { return '<a class="search-hit" href="' + esc(b.url) + '" target="_blank" rel="noopener noreferrer"><span class="sh-t">' + esc(b.title || b.url) + '</span><span class="sh-s">' + esc(host(b.url)) + '</span></a>'; }));
+    add('Watch · Read · Listen', db.media.filter(function (m) { return hit(m.title, q); }).map(function (m) { return r('data-act="editMedia" data-id="' + esc(m.id) + '"', m.title, m.type + ' · ' + m.status); }));
+    add('Friends', db.friends.filter(function (f) { return hit(f.name, q) || hit(f.notes, q) || hit(f.contact, q); }).map(function (f) { return r('data-act="editFriend" data-id="' + esc(f.id) + '"', f.name, f.contact); }));
+    add('Trips', db.trips.filter(function (t) { return hit(t.title, q) || hit(t.destination, q) || hit(t.notes, q); }).map(function (t) { return r('data-go="trip" data-id="' + esc(t.id) + '"', t.title, t.destination); }));
+    add('Major purchases', db.purchases.filter(function (p) { return hit(p.title, q) || hit(p.note, q); }).map(function (p) { return r('data-go="purchases"', p.title, p.status); }));
+    add('Shopping lists', db.listItems.filter(function (i) { return hit(i.text, q); }).map(function (i) { var l = byId(db.lists, i.list); return r('data-act="searchList" data-id="' + esc(i.list) + '"', (i.done ? '✓ ' : '') + i.text, l ? l.name : ''); }));
+    add('Copy-paste data', db.snippets.filter(function (s) { return hit(s.label, q) || hit(s.value, q); }).map(function (s) { return r('data-act="copySnippet" data-id="' + esc(s.id) + '"', s.label, 'Tap to copy'); }));
+    add('Social media', db.socials.filter(function (s) { return hit(s.platform, q) || hit(s.handle, q) || hit(s.note, q); }).map(function (s) { return r('data-act="editSocial" data-id="' + esc(s.id) + '"', s.platform + ' · ' + (s.handle || ''), s.note); }));
+    add('Diary', Object.keys(db.diary).filter(function (k) { return hit(db.diary[k].note, q); }).sort().reverse().map(function (k) { return r('data-act="diaryOpen" data-d="' + k + '"', fmtDate(k, { full: true }), db.diary[k].note); }));
+    add('Feature requests', db.features.filter(function (f) { return hit(f.text, q); }).map(function (f) { return r('data-act="editFeature" data-id="' + esc(f.id) + '"', f.text); }));
+    if (Vault.unlocked()) add('Safe Storage', Vault.records.filter(function (x) { return hit(x.name || x.title, q) || hit(x.login, q) || hit(x.tag, q); }).map(function (x) { return r('data-go="safe"', x.name || x.title || 'Record', x.type || ''); }));
+    return groups.length ? groups.join('') : '<div class="empty">Nothing matches “' + esc(q) + '”.</div>';
+  }
+  actions.searchList = function (el) { ui.listId = el.dataset.id; go('lists'); };
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-gsearch')) return;
+    ui.gq = e.target.value;
+    var res = $('#gsResults'), rest = $('#homeRest'); if (!res || !rest) return;
+    var html = searchAll(ui.gq); res.innerHTML = html; rest.hidden = !!html;
+  });
+
+  /* ---------- Home, in the order from the spec ---------- */
+  HOME_LINKS = ['calendar', 'kanban', 'projects', 'notes', 'safe', 'habits', 'routines', 'life', 'travel', 'visited', 'friends', 'media', 'bookmarks', 'lists', 'finance', 'purchases', 'diary', 'inboxes', 'snippets', 'socials'];
+  var SHORT = { media: 'Watch', travel: 'Travel', finance: 'Money', purchases: 'Purchases', visited: 'Visited', lists: 'Shopping', inboxes: 'Inboxes', snippets: 'Copy-paste', socials: 'Socials', safe: 'Safe', life: 'Whole life' };
+  screens.home = function () {
+    var t = today(), S = db.settings, gq = ui.gq.trim(), found = searchAll(gq);
+    var html = head('Home');
+    html += '<input class="input search home-search" type="search" placeholder="Search everything" data-gsearch value="' + esc(ui.gq) + '" aria-label="Search everything" enterkeyhint="search">';
+    html += '<div id="gsResults">' + found + '</div><div id="homeRest"' + (found ? ' hidden' : '') + '>';
+    if (S.widgets.clocks) html += '<div class="clocks" id="clocks">' + clocksHtml() + '</div>';
+    html += widgetsHtml();
+    html += '<button class="ai-bar" data-act="openAssistant">' + ICON.spark + '<span>Ask the assistant: “task tomorrow 10:00 call bank”</span>' + ICON.mic + '</button>';
+    var deleg = db.tasks.filter(function (x) { return isOpen(x) && x.delegatedTo; }).length;
+    html += '<div class="tiles eight">' +
+      homeTile('inbox', 'Inbox', sel.inbox().length) + homeTile('today', 'Today', sel.today().length) + homeTile('urgent', 'Most important', sel.urgent().length, sel.urgent().length ? 'alert' : '') + homeTile('followup', 'Follow-up', sel.waiting().length) +
+      homeTile('delegated', 'Delegated', deleg) + homeTile('someday', 'Someday', sel.someday().length) + homeTile('logbook', 'Done', sel.doneToday().length) + homeTile('paused', 'Paused', sel.paused().length) + '</div>';
+    html += section('My priorities', null, '<button class="link-btn" data-act="newLifePri">+ Add</button>') +
+      '<div class="pri-chips">' + db.lifePriorities.map(function (p, i) { return '<button class="pri-chip" data-act="editLifePri" data-i="' + i + '"><b>' + (i + 1) + '</b>' + esc(p) + '</button>'; }).join('') + '</div>';
+    var top = db.tasks.filter(function (x) { return active(x) && x.list !== 'someday' && (x.priority === 'urgent' || x.priority === 'high') && (!x.date || x.date <= addDays(t, 2)); })
+      .sort(function (a, b) { return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || ((a.date || '9') < (b.date || '9') ? -1 : 1); }).slice(0, 5);
+    html += section('Top tasks', top.length) + taskList(top, 'home-top', 'No urgent or high-priority tasks.', { sortable: false });
+    html += focus3Html();
+    if (db.habits.length) {
+      html += section('Habits today', db.habits.filter(function (h) { return h.done[t]; }).length + '/' + db.habits.length, '<button class="link-btn" data-go="habits">All</button>') + '<div class="list">' + db.habits.map(function (h) {
+        return checkRow(!!h.done[t], 'toggleHabit', h.id, h.name + ' today', '<button class="task-body" data-go="habits"><span class="task-title">' + esc(h.name) + '</span></button>').replace('data-act="toggleHabit"', 'data-act="toggleHabit" data-date="' + t + '"');
+      }).join('') + '</div>';
+    }
+    var timed = sel.onDate(t).filter(function (x) { return x.time; });
+    if (timed.length) html += section('Today’s schedule', null, '<button class="link-btn" data-go="calendar">Calendar</button>') + '<div class="card pad stack">' + timed.map(function (x) { return '<button class="tblock' + (x.done ? ' done' : '') + '" data-act="editTask" data-id="' + esc(x.id) + '"><div class="t">' + esc(x.time) + '</div>' + esc(x.title) + '</button>'; }).join('') + '</div>';
+    html += section('Sections') + '<div class="shortcuts">' + HOME_LINKS.map(function (r) { return '<button class="shortcut" data-go="' + r + '">' + ICON[ROUTES[r].icon] + '<span>' + esc(SHORT[r] || ROUTES[r].title) + '</span></button>'; }).join('') + '</div>';
+    html += '<div class="card pad safe-quick"><span class="row">' + ICON.lock + '<span><strong>Safe notes</strong><span class="muted small" style="display:block">' + (Vault.unlocked() ? (Vault.records.length + ' records · unlocked') : (Vault.exists() ? 'Locked' : 'Not set up')) + '</span></span></span><span class="row"><button class="tiny-btn" data-go="safe">Open</button><button class="tiny-btn" data-act="homeSafeAdd">+ Add</button></span></div>';
+    var es = earnedSpent(), cur = S.currency;
+    html += section('Money', null, '<button class="link-btn" data-go="finance">Open</button>') + '<div class="grid2"><div class="tile static"><div class="l">Earned this month</div><div class="n pos money">' + esc(fmtMoney(es.earned, cur)) + '</div></div><div class="tile static"><div class="l">Spent this month</div><div class="n money">' + esc(fmtMoney(es.spent, cur)) + '</div></div></div>';
+    if (db.accounts && db.accounts.length) html += '<div class="card pad bal-row"><span><span class="muted small" style="display:block">My balance (net worth)</span><strong class="bal-v" id="homeBal">' + balText() + '</strong></span><button class="icon-btn" id="homeBalBtn" data-act="toggleBal" aria-pressed="' + ui.showBal + '" aria-label="Show or hide the balance">' + ICON.eye + '</button></div>';
+    if (S.widgets.countdowns) html += section('Time left') + '<div class="cds" id="countdowns">' + countdowns() + '</div>';
+    html += section('Readme mindset', null, '<button class="link-btn" data-act="editMindset">' + (db.mindset ? 'Edit' : '+ Write') + '</button>');
+    html += db.mindset ? '<button class="card pad mindset" data-act="editMindset">' + esc(db.mindset) + '</button>' : '<button class="empty focus-empty" data-act="editMindset">Write the principles you want to read every day.</button>';
+    return html + '</div>';
+  };
+
+  /* ---------- Settings: widget switches, Message inboxes etc. ---------- */
+  var _settings7 = screens.settings;
+  screens.settings = function () {
+    var html = _settings7(), S = db.settings, start = html.indexOf('<div class="section"><h2>Home widgets'), end = html.indexOf('<div class="section"><h2>', start + 10);
+    if (start < 0 || end < 0) return html;
+    var card = section('Home widgets') + '<div class="card set-card">' + setRow('City clocks', chk('widgets.clocks', S.widgets.clocks), 'Bali, Moscow, New York, Los Angeles') +
+      setRow('Exchange rates', chk('widgets.rates', S.widgets.rates), 'USDT/RUB, USD/IDR, BTC, EUR, AUD') + setRow('Weather', chk('widgets.weather', S.widgets.weather), 'Where you are once location is allowed, otherwise Moscow') +
+      setRow('Traffic', chk('widgets.traffic', S.widgets.traffic), 'Opens a traffic map for your location') + setRow('S&P 500 and Dow Jones', chk('widgets.indices', S.widgets.indices), 'Open in Google Finance') +
+      setRow('Time left', chk('widgets.countdowns', S.widgets.countdowns), 'Day, week, month, year, 80 years') + '</div>';
+    return html.slice(0, start) + card + html.slice(end);
+  };
+
+  /* ---------- pull down to refresh ---------- */
+  (function () {
+    var y0 = null, pulling = false, ind = null, dist = 0;
+    function atTop() { return (window.scrollY || document.documentElement.scrollTop || 0) <= 0 && (($('#screen') || {}).scrollTop || 0) <= 0; }
+    function blocked(e) { return sheetOpen() || $('#drawer').classList.contains('on') || document.documentElement.classList.contains('locked') || (e.target.closest && e.target.closest('input, textarea, select, [data-drag], .sheet')); }
+    document.addEventListener('touchstart', function (e) { if (e.touches.length !== 1 || blocked(e) || !atTop()) { y0 = null; return; } y0 = e.touches[0].clientY; dist = 0; }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (y0 == null) return; dist = e.touches[0].clientY - y0;
+      if (dist <= 0) { if (ind) ind.style.transform = 'translate(-50%, -60px)'; pulling = false; return; }
+      if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.setAttribute('aria-hidden', 'true'); ind.textContent = '↻'; document.body.appendChild(ind); }
+      pulling = true; var p = Math.min(dist, 110);
+      ind.style.transform = 'translate(-50%, ' + (p * 0.7 - 40) + 'px) rotate(' + (p * 3) + 'deg)'; ind.classList.toggle('ready', p > 80);
+    }, { passive: true });
+    document.addEventListener('touchend', function () {
+      if (y0 == null) return; y0 = null; if (!pulling || !ind) return; pulling = false;
+      var el = ind;
+      if (dist > 80) {
+        el.classList.add('spin'); el.style.transform = 'translate(-50%, 20px)';
+        Promise.all([refreshMarket(true).catch(function () { }), refreshWeather(true).catch(function () { }), Cloud.signedIn() ? Cloud.sync().catch(function () { }) : null])
+          .then(function () { render(); toast(Cloud.signedIn() ? 'Refreshed and synced' : 'Refreshed'); })
+          .then(function () { el.style.transform = 'translate(-50%, -60px)'; setTimeout(function () { el.classList.remove('spin', 'ready'); }, 250); });
+      } else el.style.transform = 'translate(-50%, -60px)';
+    });
+  })();
+
+  var _boot7 = boot;
+  boot = function () { _boot7(); window.FocusDebug.calcEval = calcEval; };
+
   /* ================= boot ================= */
   function boot() {
     sheetWrap = $('#sheetWrap'); sheetEl = $('#sheet');

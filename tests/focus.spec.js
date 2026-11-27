@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Routines', 'Places visited', 'Message inboxes', 'Copy-paste data', 'Shopping lists', 'My social media', 'Diary', 'Feature requests'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -128,7 +128,7 @@ test('every button on every screen is wired to a real action', async ({ page }) 
 test('multi-step Back, plus browser/iOS swipe back', async ({ page }) => {
   await open(page);
   await press(page, page.locator('#moreTab'));
-  await expect(page.locator('#sheet .choice')).toHaveText(['Projects', 'Notes', 'Safe', 'Money']);
+  await expect(page.locator('#sheet .choice')).toHaveText(['Projects', 'Notes', 'Safe', 'Money', 'Feature requests']);
   await press(page, page.locator('#sheet .choice', { hasText: 'Projects' }));
   await expect(h1(page)).toHaveText('Projects');
   await press(page, page.locator('.item-card', { hasText: 'Home renovation' }));
@@ -148,7 +148,7 @@ test('+ opens chooser; a new task lands in Inbox and survives reload', async ({ 
   await open(page);
   await press(page, page.locator('.add-btn'));
   const choices = page.locator('#sheet .choice');
-  await expect(choices).toHaveText(['Task', 'Assistant', 'Note', 'Safe', 'Income', 'Expense', 'Balance', 'Bookmark']);
+  await expect(choices).toHaveText(['Task', 'Assistant', 'Note', 'Safe', 'Income', 'Expense', 'Balance', 'Bookmark', 'Diary', 'Shopping']);
   await press(page, choices.filter({ hasText: 'Task' }));
   await page.locator('#sheet input[name=title]').fill('Buy printer ink');
   await expect(page.locator('#sheet select[name=list]')).toHaveValue('inbox');
@@ -683,7 +683,7 @@ test('Home: date under each clock, IDR rate, change vs yesterday, sun tile, my p
   await page.locator('#sheet input[name=name]').fill('Путешествия');
   await press(page, page.locator('#sheet button[type=submit]'));
   await expect(page.locator('.pri-chip')).toHaveCount(7);
-  await expect(page.locator('.shortcut')).toHaveCount(12);
+  await expect(page.locator('.shortcut')).toHaveCount(20);
 });
 
 test('Assistant: one message creates a task with date/time/priority, an expense and a note', async ({ page }) => {
