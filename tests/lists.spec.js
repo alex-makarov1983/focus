@@ -10,7 +10,8 @@ async function press(page, locator) {
 }
 async function open(page, hash = '') {
   const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  /* WebKit reports mocked cross-origin requests as blocked; that is the test harness, not the app. */
+  page.on('pageerror', (e) => { if (!/access control checks|Load failed|Failed to fetch/i.test(e.message)) errors.push(e.message); });
   await page.route(/coingecko|open-meteo/, (r) => r.fulfill({ json: {} }));
   await page.goto('index.html?demo=1' + hash);
   await page.waitForSelector('html[data-ready="1"]');

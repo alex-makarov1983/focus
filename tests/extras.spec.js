@@ -7,8 +7,9 @@ async function press(page, locator) {
 }
 async function open(page, hash = '', demo = true) {
   const errors = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const harness = /access control checks|Load failed|Failed to fetch/i; /* WebKit blocks mocked cross-origin calls */
+  page.on('pageerror', (e) => { if (!harness.test(e.message)) errors.push(e.message); });
+  page.on('console', (m) => { if (m.type() === 'error' && !harness.test(m.text())) errors.push(m.text()); });
   await page.route(/coingecko/, (r) => r.fulfill({ json: { bitcoin: { usd: 97120, usd_24h_change: 1.2 }, tether: { usd: 1, rub: 95.4, idr: 16350, eur: 0.92, aud: 1.53, rub_24h_change: 0.4, idr_24h_change: -0.12, eur_24h_change: 0.1, aud_24h_change: -0.3 } } }));
   await page.route(/open-meteo/, (r) => r.fulfill({ json: { current: { temperature_2m: 29.4, apparent_temperature: 33, weather_code: 2, wind_speed_10m: 3 }, daily: { sunrise: ['2026-11-18T05:41'], sunset: ['2026-11-18T18:12'] } } }));
   await page.goto('index.html' + (demo ? '?demo=1' : '') + hash);
