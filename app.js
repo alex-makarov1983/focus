@@ -5550,7 +5550,7 @@
     { name: 'search_app', description: 'Search everything in Focus (tasks, projects, notes, bookmarks, media, friends, trips, purchases, journal) by text.', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
     { name: 'get_item', description: 'Get full details of one task, project or note by id (task notes and subtasks, note body, project notes and tasks).', input_schema: { type: 'object', properties: { type: { type: 'string', enum: ['task', 'project', 'note'] }, id: { type: 'string' } }, required: ['type', 'id'] } },
     { name: 'create_task', description: 'Create a task.', input_schema: { type: 'object', properties: { title: { type: 'string' }, notes: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM' }, priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'] }, list: { type: 'string', enum: ['inbox', 'anytime', 'someday'] }, project_id: { type: 'string' }, area_id: { type: 'string' }, repeat: { type: 'string', enum: ['', 'daily', 'weekly', 'monthly', 'yearly'] }, deadline: { type: 'boolean' }, subtasks: { type: 'array', items: { type: 'string' } } }, required: ['title'] } },
-    { name: 'update_task', description: 'Change fields of an existing task. Only pass fields that change.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, notes: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD or empty to clear' }, time: { type: 'string' }, priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'] }, list: { type: 'string', enum: ['inbox', 'anytime', 'someday'] }, status: { type: 'string', enum: ['todo', 'progress', 'waiting', 'paused'] }, project_id: { type: 'string' }, repeat: { type: 'string', enum: ['', 'daily', 'weekly', 'monthly', 'yearly'] }, deadline: { type: 'boolean' }, add_subtasks: { type: 'array', items: { type: 'string' } } }, required: ['id'] } },
+    { name: 'update_task', description: 'Change fields of an existing task. Only pass fields that change.', input_schema: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' }, notes: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD or empty to clear' }, time: { type: 'string' }, priority: { type: 'string', enum: ['urgent', 'high', 'medium', 'low'] }, list: { type: 'string', enum: ['inbox', 'anytime', 'someday'] }, status: { type: 'string', enum: ['todo', 'doing', 'waiting', 'paused'] }, project_id: { type: 'string' }, repeat: { type: 'string', enum: ['', 'daily', 'weekly', 'monthly', 'yearly'] }, deadline: { type: 'boolean' }, add_subtasks: { type: 'array', items: { type: 'string' } } }, required: ['id'] } },
     { name: 'complete_task', description: 'Mark a task done.', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
     { name: 'create_note', description: 'Create a note (for plans, research summaries, ideas).', input_schema: { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' }, project_id: { type: 'string' } }, required: ['title', 'body'] } },
     { name: 'append_to_task_notes', description: 'Add text (for example a research summary with links) to the end of a task\'s notes.', input_schema: { type: 'object', properties: { id: { type: 'string' }, text: { type: 'string' } }, required: ['id', 'text'] } },
@@ -6002,6 +6002,1056 @@
     syncWide();
     window.FocusDebug.aiSystem = aiSystem;
   };
+
+  /* ================= v1.10: lists, statuses and tags you manage; drag tasks between lists; Home list tiles; structure settings ================= */
+  APP_VERSION = '1.10.0';
+
+  ICON.tag = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0z"/><circle cx="8.2" cy="8.2" r="1.4"/></svg>';
+  ICON.list = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.1"/><circle cx="4.5" cy="12" r="1.1"/><circle cx="4.5" cy="17.5" r="1.1"/></svg>';
+  ICON.archive = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="4.5" rx="1.2"/><path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5M10 12.5h4"/></svg>';
+  ICON.status = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>';
+  ICON.eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  ICON.eyeOff = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 4l16 16M10 5.7A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.7 3.4M6.6 7.4A16 16 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.3-1.1M9.9 10a3 3 0 0 0 4.1 4.1"/></svg>';
+
+  var LIST_DEFAULTS = [
+    { id: 'inbox', name: 'Inbox', builtin: true },
+    { id: 'today', name: 'Today', builtin: true },
+    { id: 'urgent', name: 'Most important & Urgent', short: 'Most important', builtin: true },
+    { id: 'anytime', name: 'Anytime', builtin: true },
+    { id: 'someday', name: 'Someday', builtin: true }
+  ];
+  var STATUS_DEFAULTS = [
+    { id: 'todo', name: 'Not started', color: 'gray', builtin: true },
+    { id: 'doing', name: 'In progress', color: 'blue', builtin: true },
+    { id: 'done', name: 'Done', color: 'green', builtin: true },
+    { id: 'paused', name: 'Paused', color: 'orange', builtin: true },
+    { id: 'archived', name: 'Archive', color: 'gray', builtin: true }
+  ];
+  var TAG_DEFAULTS = [
+    { id: 'followup', name: 'Follow-up', color: 'purple', builtin: true },
+    { id: 'delegated', name: 'Delegated', color: 'teal', builtin: true }
+  ];
+  var LOCKED_STATUSES = ['todo', 'done'];
+  var COLORS = [['gray', 'Gray'], ['blue', 'Blue'], ['green', 'Green'], ['orange', 'Orange'], ['red', 'Red'], ['purple', 'Purple'], ['teal', 'Teal'], ['pink', 'Pink']];
+  var LIST_SORTS = [['manual', 'My order (drag)'], ['date', 'Date'], ['priority', 'Priority'], ['title', 'Title A–Z'], ['newest', 'Newest first']];
+  var STATUS_ROUTES = { paused: 'paused', archived: 'archive' };
+  var TAG_ROUTES = { followup: 'followup', delegated: 'delegated' };
+
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+  function isCustomList(id) { return /^l_/.test(id || ''); }
+  function listById(id) { return byId(db.lists, id); }
+  function tagById(id) { return byId(db.tags, id); }
+  function statusById(id) { return byId(db.statuses, id); }
+  function hasTag(t, id) { return Array.isArray(t.tags) && t.tags.indexOf(id) >= 0; }
+  function addTag(t, id) { if (!Array.isArray(t.tags)) t.tags = []; if (t.tags.indexOf(id) < 0 && (!db || !db.tags || tagById(id))) t.tags.push(id); }
+  function ordered(arr) { return arr.slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); }); }
+  function listRoute(l) { return l.id; }
+  function tagRoute(g) { return TAG_ROUTES[g.id] || 'tag_' + g.id; }
+  function statusRoute(s) { return STATUS_ROUTES[s.id] || (s.id === 'todo' || s.id === 'done' ? '' : 'status_' + s.id); }
+
+  /* ---------- data: lists, statuses, tags (top-level id lists, so cloud sync merges them item by item) ---------- */
+  function seedColl(defs) { return defs.map(function (x, i) { return Object.assign({ order: i + 1 }, x); }); }
+  function syncTask(t, d) {
+    if (!Array.isArray(t.tags)) t.tags = [];
+    var tagOk = function (id) { return !!byId(d.tags, id); };
+    if (t.status === 'waiting') { t.status = 'todo'; if (tagOk('followup') && t.tags.indexOf('followup') < 0) t.tags.push('followup'); }
+    if (t.delegatedTo && tagOk('delegated') && t.tags.indexOf('delegated') < 0) t.tags.push('delegated');
+    if (!t.done && t.status !== 'done' && !byId(d.statuses, t.status)) t.status = 'todo';
+    if (t.tags.length) t.tags = t.tags.filter(function (id, i, a) { return tagOk(id) && a.indexOf(id) === i; });
+    if (t.list && t.list !== 'inbox' && t.list !== 'anytime' && t.list !== 'someday' && !byId(d.lists, t.list)) t.list = 'inbox';
+  }
+  function normalize19(d) {
+    if (!Array.isArray(d.lists) || !d.lists.length) d.lists = seedColl(LIST_DEFAULTS);
+    LIST_DEFAULTS.forEach(function (x, i) { if (!byId(d.lists, x.id)) d.lists.push(Object.assign({ order: i + 1 }, x)); });
+    if (!Array.isArray(d.statuses) || !d.statuses.length) d.statuses = seedColl(STATUS_DEFAULTS);
+    LOCKED_STATUSES.forEach(function (id) { if (!byId(d.statuses, id)) d.statuses.unshift(Object.assign({ order: 0 }, byId(STATUS_DEFAULTS, id))); });
+    if (!Array.isArray(d.tags)) d.tags = seedColl(TAG_DEFAULTS);
+    var S = d.settings;
+    if (!S.layout || typeof S.layout !== 'object') S.layout = {};
+    var L = S.layout;
+    if (!Array.isArray(L.tiles)) L.tiles = [];
+    if (!L.tileVis || typeof L.tileVis !== 'object') L.tileVis = {};
+    if (!Array.isArray(L.menuHidden)) L.menuHidden = [];
+    if (L.emptyLists == null) L.emptyLists = true;
+    if (L.rowTags == null) L.rowTags = true;
+    if (L.rowStatus == null) L.rowStatus = true;
+    if (!L.newTaskList) L.newTaskList = 'inbox';
+    d.tasks.forEach(function (t) { syncTask(t, d); });
+    syncMeta(d);
+    return d;
+  }
+  var _normalize110 = normalize;
+  normalize = function (d) { return normalize19(_normalize110(d)); };
+
+  /* Keep the app's constant tables, routes and menu in step with the lists, statuses and tags in the data. */
+  var dynRoutes = [];
+  function syncMeta(d) {
+    d = d || db; if (!d || !d.lists) return;
+    var custom = ordered(d.lists).filter(function (l) { return !l.builtin; });
+    LISTS.length = 0;
+    LISTS.push(['inbox', (byId(d.lists, 'inbox') || {}).name || 'Inbox'], ['anytime', (byId(d.lists, 'anytime') || {}).name || 'Anytime'], ['someday', (byId(d.lists, 'someday') || {}).name || 'Someday']);
+    custom.forEach(function (l) { LISTS.push([l.id, l.name]); });
+    STATUSES.length = 0;
+    ordered(d.statuses).forEach(function (s) { STATUSES.push([s.id, s.name]); });
+    dynRoutes.forEach(function (r) { delete ROUTES[r]; delete screens[r]; });
+    dynRoutes = [];
+    function reg(key, title, icon, fn) { ROUTES[key] = { title: title, icon: icon }; screens[key] = fn; dynRoutes.push(key); }
+    custom.forEach(function (l) { reg(l.id, l.name, 'list', function () { return customListScreen(l.id); }); });
+    ordered(d.tags).forEach(function (g) { if (!TAG_ROUTES[g.id]) reg('tag_' + g.id, g.name, 'tag', function () { return tagScreen(g.id); }); });
+    ordered(d.statuses).forEach(function (s) { var r = statusRoute(s); if (r && !STATUS_ROUTES[s.id]) reg(r, s.name, 'status', function () { return statusScreen(s.id); }); });
+    LIST_DEFAULTS.forEach(function (x) { var l = byId(d.lists, x.id); if (l && ROUTES[x.id]) ROUTES[x.id].title = l.name; });
+    Object.keys(TAG_ROUTES).forEach(function (id) { var g = byId(d.tags, id); if (g) ROUTES[TAG_ROUTES[id]].title = g.name; });
+    var ps = byId(d.statuses, 'paused'); if (ps) ROUTES.paused.title = ps.name;
+    var ar = byId(d.statuses, 'archived'); ROUTES.archive.title = ar ? ar.name : 'Archive';
+    /* menu: custom lists after the built-in lists, tags after Delegated, statuses after Paused, Archive after Done */
+    var g0 = DRAWER_GROUPS[0][1];
+    for (var i = g0.length - 1; i >= 0; i--) if (dynRoutes.indexOf(g0[i]) >= 0 || g0[i] === 'archive') g0.splice(i, 1);
+    function after(anchor, keys) { var at = g0.indexOf(anchor); if (at < 0) at = g0.length - 1; Array.prototype.splice.apply(g0, [at + 1, 0].concat(keys)); }
+    after('someday', custom.map(listRoute));
+    after(g0.indexOf('delegated') >= 0 ? 'delegated' : 'someday', ordered(d.tags).filter(function (g) { return !TAG_ROUTES[g.id]; }).map(tagRoute));
+    after(g0.indexOf('paused') >= 0 ? 'paused' : 'someday', ordered(d.statuses).map(statusRoute).filter(function (r) { return r && dynRoutes.indexOf(r) >= 0; }));
+    if (byId(d.statuses, 'archived')) after(g0.indexOf('logbook') >= 0 ? 'logbook' : 'paused', ['archive']);
+  }
+  ROUTES.archive = { title: 'Archive', icon: 'archive' };
+  ROUTES.structure = { title: 'Lists, tags & layout', icon: 'list' };
+  DRAWER_GROUPS[DRAWER_GROUPS.length - 1][1].splice(1, 0, 'structure');
+  DRAWER_SUB.structure = 'Lists, statuses, tags, Home, menu';
+
+  /* every save keeps tags consistent with the older fields (Follow-up status, Delegated to) */
+  var _save110 = save;
+  save = function () { if (db && db.tasks && db.tags) db.tasks.forEach(function (t) { syncTask(t, db); }); _save110(); };
+
+  /* ---------- selectors ---------- */
+  isOpen = function (t) { return !t.done && t.status !== 'archived'; };
+  sel.waiting = function () { return db.tasks.filter(function (t) { return isOpen(t) && (hasTag(t, 'followup') || t.status === 'waiting'); }).sort(byOrder); };
+  sel.delegatedAll = function () { return db.tasks.filter(function (t) { return isOpen(t) && (hasTag(t, 'delegated') || t.delegatedTo); }); };
+  sel.archived = function () { return db.tasks.filter(function (t) { return !t.done && t.status === 'archived'; }).sort(byOrder); };
+  sel.inList = function (id) { return db.tasks.filter(function (t) { return active(t) && t.list === id; }).sort(byOrder); };
+  sel.withTag = function (id) { return db.tasks.filter(function (t) { return isOpen(t) && hasTag(t, id); }).sort(byOrder); };
+  sel.withStatus = function (id) { return db.tasks.filter(function (t) { return !t.done && t.status === id; }).sort(byOrder); };
+  var _setStatus110 = setTaskStatus;
+  setTaskStatus = function (t, s) {
+    if (s === 'waiting') { if (t.done) reopenTask(t); if (!t.status || t.status === 'waiting' || t.status === 'done') t.status = 'todo'; addTag(t, 'followup'); return; }
+    _setStatus110(t, s);
+  };
+  var _quickCreate110 = quickCreate;
+  quickCreate = function (title, c) {
+    c = c || {};
+    var t = _quickCreate110(title, c);
+    if (Array.isArray(c.tags) && c.tags.length) { c.tags.forEach(function (id) { addTag(t, id); }); save(); }
+    return t;
+  };
+
+  /* ---------- per-list sorting ---------- */
+  var PRANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+  function sortTasks(xs, how) {
+    var a = xs.slice();
+    if (how === 'date') a.sort(function (x, y) { var p = (x.date || '9999') + (x.time || '99'), q = (y.date || '9999') + (y.time || '99'); return p < q ? -1 : p > q ? 1 : byOrder(x, y); });
+    else if (how === 'priority') a.sort(function (x, y) { return (PRANK[x.priority] - PRANK[y.priority]) || byOrder(x, y); });
+    else if (how === 'title') a.sort(function (x, y) { return String(x.title).localeCompare(String(y.title)); });
+    else if (how === 'newest') a.sort(function (x, y) { return (y.createdAt || 0) - (x.createdAt || 0); });
+    return a;
+  }
+  function listForKey(key) {
+    var k = String(key || '');
+    var m = { inbox: 'inbox', today: 'today', 'today-over': 'today', urgent: 'urgent', anytime: 'anytime', someday: 'someday' }[k];
+    if (m) return m;
+    if (k.indexOf('list-') === 0) return k.slice(5);
+    return '';
+  }
+  var _taskList110 = taskList;
+  taskList = function (tasks, key, emptyText, opts) {
+    var l = listForKey(key) && listById(listForKey(key));
+    if (l && l.sort && l.sort !== 'manual') { tasks = sortTasks(tasks, l.sort); opts = Object.assign({}, opts || {}, { sortable: false }); }
+    return _taskList110(tasks, key, emptyText, opts);
+  };
+  var _inbox110 = screens.inbox;
+  screens.inbox = function () {
+    var l = listById('inbox');
+    if (!l || !l.sort || l.sort === 'manual') return _inbox110();
+    return head(l.name, 'Sorted by ' + label(LIST_SORTS, l.sort).toLowerCase() + '. Change it in Lists, tags & layout.') + taskList(sel.inbox(), 'inbox', 'Inbox is empty.') + addTaskBtn({});
+  };
+
+  /* ---------- screens for custom lists, tags, statuses, Archive ---------- */
+  function customListScreen(id) {
+    var l = listById(id); if (!l) return head('List') + '<div class="empty">This list was deleted.</div>';
+    var xs = sel.inList(id), dn = db.tasks.filter(function (t) { return t.list === id && t.done && t.completedAt === today(); });
+    var html = head(l.name, xs.length + ' open' + (l.sort && l.sort !== 'manual' ? ' · sorted by ' + label(LIST_SORTS, l.sort).toLowerCase() : ''), '<button class="tiny-btn" data-act="editList" data-id="' + esc(id) + '">Edit list</button>');
+    html += taskList(xs, 'list-' + id, 'No tasks in this list yet.');
+    var paused = db.tasks.filter(function (t) { return isOpen(t) && t.list === id && t.status === 'paused'; });
+    if (paused.length) html += section(ROUTES.paused.title, paused.length) + taskList(paused, 'list-paused-' + id, '', { sortable: false });
+    if (dn.length) html += section('Done today', dn.length) + '<div class="list">' + dn.map(function (t) { return taskRow(t, { sortable: false }); }).join('') + '</div>';
+    return html + addTaskBtn({ list: id, where: l.name }, 'Add to ' + l.name);
+  }
+  function tagScreen(id) {
+    var g = tagById(id); if (!g) return head('Tag') + '<div class="empty">This tag was deleted.</div>';
+    var xs = sel.withTag(id);
+    return head(g.name, 'Open tasks tagged ' + esc(g.name), '<button class="tiny-btn" data-act="editTag" data-id="' + esc(id) + '">Edit tag</button>') + taskList(xs, 'tag-' + id, 'No open tasks with this tag.', { sortable: false }) + addTaskBtn({ tags: [id], where: g.name }, 'Add task tagged ' + g.name);
+  }
+  function statusScreen(id) {
+    var s = statusById(id); if (!s) return head('Status') + '<div class="empty">This status was deleted.</div>';
+    var xs = sel.withStatus(id);
+    return head(s.name, 'Tasks with this status', '<button class="tiny-btn" data-act="editStatus" data-id="' + esc(id) + '">Edit status</button>') + taskList(xs, 'status-' + id, 'No tasks with this status.', { sortable: false }) + addTaskBtn({ status: id, where: s.name }, 'Add task');
+  }
+  screens.archive = function () {
+    var xs = sel.archived(), s = statusById('archived');
+    return head(s ? s.name : 'Archive', 'Kept for reference, hidden from every list. Change the status to bring a task back.') + taskList(xs, 'archive', 'Nothing archived.', { sortable: false });
+  };
+  var _delegated110 = screens.delegated;
+  screens.delegated = function () {
+    var h = _delegated110(), xs = db.tasks.filter(function (t) { return isOpen(t) && !t.delegatedTo && hasTag(t, 'delegated'); }).sort(byOrder);
+    if (!xs.length) return h;
+    var add = section('Tagged ' + ((tagById('delegated') || {}).name || 'Delegated'), xs.length) + taskList(xs, 'deleg-tag', '');
+    var k = h.lastIndexOf('<button class="link-btn" style="margin-top:10px" data-go="settings">');
+    return k > 0 ? h.slice(0, k) + add + h.slice(k) : h + add;
+  };
+
+  /* ---------- where a new task goes ---------- */
+  var _addCtx110 = addCtx;
+  addCtx = function () {
+    var r = ui.route, c;
+    if (isCustomList(r.name) && listById(r.name)) return { list: r.name, where: listById(r.name).name };
+    if (r.name.indexOf('tag_') === 0 && tagById(r.name.slice(4))) return { list: 'anytime', tags: [r.name.slice(4)], where: tagById(r.name.slice(4)).name };
+    if (r.name.indexOf('status_') === 0 && statusById(r.name.slice(7))) return { list: 'anytime', status: r.name.slice(7), where: statusById(r.name.slice(7)).name };
+    c = _addCtx110();
+    if (r.name === 'followup') { c.tags = ['followup']; delete c.status; }
+    if (r.name === 'delegated') c.tags = ['delegated'];
+    if (c.list === 'inbox' && !c.project && !c.date && db.settings.layout.newTaskList !== 'inbox' && (r.name === 'home' || r.name === 'alltasks')) {
+      var nl = db.settings.layout.newTaskList;
+      if (nl === 'anytime' || nl === 'someday' || listById(nl)) { c.list = nl; c.where = (listById(nl) || {}).name || label(LISTS, nl); }
+    }
+    return c;
+  };
+
+  /* ---------- task rows: status and tag chips ---------- */
+  var _taskMeta110 = taskMeta;
+  taskMeta = function (t, opts) {
+    var h = _taskMeta110(t, opts).replace('<span class="chip accent">In progress</span>', '').replace('<span class="chip accent">Follow-up</span>', '');
+    var L = db.settings.layout, extra = '';
+    if (L.rowStatus && !t.done && t.status && t.status !== 'todo') { var s = statusById(t.status); if (s) extra += '<span class="chip tg tg-' + esc(s.color || 'gray') + '">' + esc(s.name) + '</span>'; }
+    if (L.rowTags && t.tags && t.tags.length) t.tags.forEach(function (id) {
+      if (id === 'delegated' && t.delegatedTo) return;
+      var g = tagById(id); if (g) extra += '<span class="chip tg tg-' + esc(g.color || 'gray') + '">#' + esc(g.name) + '</span>';
+    });
+    return extra ? h.replace(/<\/span>$/, extra + '</span>') : h;
+  };
+
+  /* ---------- task form: tags ---------- */
+  function tagPickerHtml(chosen) {
+    var tags = ordered(db.tags);
+    return '<div class="field tag-field"><span>Tags</span><div class="tag-pick">' + (tags.length ? tags.map(function (g) {
+      return '<label class="tag-chip tg tg-' + esc(g.color || 'gray') + '"><input type="checkbox" name="tag" value="' + esc(g.id) + '"' + (chosen.indexOf(g.id) >= 0 ? ' checked' : '') + '><span>' + esc(g.name) + '</span></label>';
+    }).join('') : '<span class="muted small">No tags yet. Create them in ☰ → Lists, tags &amp; layout.</span>') + '</div></div>';
+  }
+  var _taskForm110 = taskForm;
+  taskForm = function (t, ctx) {
+    ctx = ctx || {};
+    _taskForm110(t, ctx);
+    var form = $('#sheet form[data-form=task]'); if (!form || form.querySelector('.tag-pick')) return;
+    var chosen = t ? (t.tags || []).slice() : (ctx.tags || []).slice();
+    if (!t && ctx.status === 'waiting') chosen.push('followup');
+    if (!t && ctx.delegatedTo) chosen.push('delegated');
+    var st = form.elements.status, anchor = st ? (st.closest('.fields2') || st.closest('.field')) : null;
+    if (anchor) anchor.insertAdjacentHTML('afterend', tagPickerHtml(chosen));
+    if (!t && ctx.status && st && statusById(ctx.status)) st.value = ctx.status;
+  };
+  var _submitTask110 = submitters.task;
+  submitters.task = function (form) {
+    var picker = form.querySelector('.tag-pick');
+    if (!form.dataset.id && !form.dataset.preId) form.dataset.preId = uid();
+    var id = form.dataset.id || form.dataset.preId, before = task(id);
+    var hadDeleg = before ? hasTag(before, 'delegated') : false, origTo = before ? before.delegatedTo || '' : '';
+    var chosen = picker ? $all('input[name=tag]', form).filter(function (c) { return c.checked; }).map(function (c) { return c.value; }) : null;
+    _submitTask110(form);
+    var t = task(id); if (!t || !chosen) return;
+    if (hadDeleg && chosen.indexOf('delegated') < 0 && (t.delegatedTo || '') === origTo) t.delegatedTo = '';
+    t.tags = chosen.filter(function (x) { return tagById(x); });
+    save(); if (!sheetOpen()) render();
+  };
+
+  /* ---------- All tasks: every list, drag a task from one list to another ---------- */
+  function visibleLists() { return ordered(db.lists).filter(function (l) { return !l.hidden; }); }
+  function sectionOf(t, vis) {
+    var L = t.list || 'inbox', chain = [];
+    if (L === 'inbox' || L === 'someday' || isCustomList(L)) chain.push(L);
+    if (t.priority === 'urgent') chain.push('urgent');
+    if (t.date && t.date <= today()) chain.push('today');
+    chain.push('anytime');
+    for (var i = 0; i < chain.length; i++) if (vis[chain[i]]) return chain[i];
+    return '_other';
+  }
+  screens.alltasks = function () {
+    var all = sel.allOpen(), lists = visibleLists(), vis = {}, groups = {};
+    lists.forEach(function (l) { vis[l.id] = 1; groups[l.id] = []; });
+    groups._other = [];
+    all.forEach(function (t) { groups[sectionOf(t, vis)].push(t); });
+    var html = head('All tasks', all.length + ' open · ' + sel.doneToday().length + ' done today · drag ⋮⋮ to move between lists');
+    html += addTaskBtn({});
+    var showEmpty = db.settings.layout.emptyLists !== false;
+    lists.concat(groups._other.length ? [{ id: '_other', name: 'Other' }] : []).forEach(function (l) {
+      var xs = l.sort && l.sort !== 'manual' ? sortTasks(groups[l.id], l.sort) : groups[l.id].sort(byOrder);
+      if (!xs.length && !showEmpty) return;
+      html += section(l.name, xs.length, l.id === '_other' ? '' : '<button class="link-btn" data-go="' + esc(l.id) + '">Open</button>');
+      html += '<div class="list drop-list" data-sort-list="all:' + esc(l.id) + '" data-sort-group="alllists">' + xs.map(function (t) { return taskRow(t, { showDate: true }); }).join('') + '<div class="drop-empty">Drop a task here</div></div>';
+    });
+    if (!all.length) html += '<div class="empty">No open tasks. Nice.</div>';
+    return html;
+  };
+  placeItem = function () {
+    var under = document.elementFromPoint(drag.x, drag.y); if (!under) return;
+    var list = under.closest('[data-sort-list]');
+    if (!list || list.dataset.sortGroup !== drag.group) return;
+    if (drag.group !== 'kanban' && drag.group !== 'alllists' && list !== drag.from) return;
+    var grid = list.dataset.sortAxis === 'grid';
+    var kids = Array.prototype.filter.call(list.children, function (c) { return c.hasAttribute('data-sort-item') && c !== drag.item; });
+    var before = null;
+    for (var i = 0; i < kids.length; i++) {
+      var r = kids[i].getBoundingClientRect();
+      if (grid ? (drag.y < r.top || (drag.y <= r.bottom && drag.x < r.left + r.width / 2)) : drag.y < r.top + r.height / 2) { before = kids[i]; break; }
+    }
+    if (!before) before = list.querySelector(':scope > .drop-empty');
+    if (before) { if (drag.item.nextSibling !== before || drag.item.parentElement !== list) list.insertBefore(drag.item, before); }
+    else if (list.lastElementChild !== drag.item) list.appendChild(drag.item);
+  };
+  function moveTaskToList(t, to) {
+    var td = today(), keepList = t.list === 'anytime' ? 'anytime' : 'anytime';
+    if (to === 'inbox' || to === 'someday' || isCustomList(to)) { t.list = to; return; }
+    if (to === 'anytime') {
+      t.list = 'anytime';
+      if (t.priority === 'urgent') t.priority = 'high';
+      if (t.date && t.date <= td) { t.date = ''; t.time = ''; t.deadline = false; }
+      return;
+    }
+    if (t.list === 'inbox' || t.list === 'someday' || isCustomList(t.list)) t.list = keepList;
+    if (to === 'today') { t.date = td; if (t.priority === 'urgent') t.priority = 'high'; }
+    if (to === 'urgent') t.priority = 'urgent';
+  }
+  var lastDrag19 = null;
+  var _endDrag110 = endDrag;
+  endDrag = function (e, cancelled) {
+    if (drag && (!e || e.pointerId === drag.pid) && drag.group === 'alllists') lastDrag19 = { id: drag.id, from: drag.from };
+    _endDrag110(e, cancelled);
+  };
+  SORT_HANDLERS.alllists = function (ids, list) {
+    var d = lastDrag19; lastDrag19 = null;
+    var to = list.dataset.sortList.slice(4), from = d && d.from ? d.from.dataset.sortList.slice(4) : to;
+    var t = d && task(d.id);
+    if (t && to !== from && to !== '_other') {
+      var snap = clone(t);
+      moveTaskToList(t, to);
+      reorderIds(ids); save(); render();
+      var l = listById(to);
+      toast('Moved to ' + (l ? l.name : to), 'Undo', function () { var x = task(snap.id); if (x) { Object.keys(snap).forEach(function (k) { x[k] = snap[k]; }); save(); render(); } });
+      return;
+    }
+    reorderIds(ids); save(); render();
+  };
+
+  /* ---------- Home: a tile with the count for every list, tag and status you want there ---------- */
+  function tileDefs() {
+    var out = [], imp = sel.urgent();
+    var counts = { inbox: sel.inbox().length, today: sel.today().length, urgent: imp.length, anytime: sel.anytime().length, someday: sel.someday().length };
+    ordered(db.lists).forEach(function (l) {
+      if (l.hidden) return;
+      out.push({ key: 'list:' + l.id, route: l.id, label: l.short || l.name, n: l.builtin ? counts[l.id] : sel.inList(l.id).length, cls: l.id === 'urgent' && imp.length ? 'alert' : '', kind: 'list', def: true });
+    });
+    ordered(db.tags).forEach(function (g) { out.push({ key: 'tag:' + g.id, route: tagRoute(g), label: g.name, n: sel.withTag(g.id).length + (g.id === 'delegated' ? db.tasks.filter(function (t) { return isOpen(t) && t.delegatedTo && !hasTag(t, 'delegated'); }).length : g.id === 'followup' ? db.tasks.filter(function (t) { return isOpen(t) && t.status === 'waiting' && !hasTag(t, 'followup'); }).length : 0), kind: 'tag', def: !!TAG_ROUTES[g.id] }); });
+    ordered(db.statuses).forEach(function (s) {
+      var r = statusRoute(s); if (!r) return;
+      out.push({ key: 'status:' + s.id, route: r, label: s.name, n: s.id === 'archived' ? sel.archived().length : sel.withStatus(s.id).length, kind: 'status', def: s.id === 'paused' });
+    });
+    out.push({ key: 'done', route: 'logbook', label: (statusById('done') || {}).name || 'Done', n: sel.doneToday().length, kind: 'view', def: true });
+    out.push({ key: 'all', route: 'alltasks', label: 'All', n: sel.allOpen().length, kind: 'view', def: true });
+    out.push({ key: 'upcoming', route: 'upcoming', label: ROUTES.upcoming.title, n: sel.upcoming().length, kind: 'view', def: false });
+    out.push({ key: 'deadlines', route: 'deadlines', label: ROUTES.deadlines.title, n: sel.deadlines().length, kind: 'view', def: false });
+    /* order: saved order first; new lists go after the last list, anything else at the end */
+    var saved = db.settings.layout.tiles, keys = out.map(function (x) { return x.key; });
+    var order = saved.filter(function (k) { return keys.indexOf(k) >= 0; });
+    var defaultOrder = ['list:inbox', 'list:today', 'list:urgent', 'list:anytime', 'list:someday'];
+    out.forEach(function (x) {
+      if (order.indexOf(x.key) >= 0) return;
+      if (!saved.length) { order.push(x.key); return; }
+      if (x.kind === 'list') {
+        var lastList = -1; order.forEach(function (k, i) { if (k.indexOf('list:') === 0) lastList = i; });
+        order.splice(lastList + 1, 0, x.key);
+      } else order.push(x.key);
+    });
+    if (!saved.length) {
+      var rank = function (k) { var i = defaultOrder.indexOf(k); if (i >= 0) return i; if (k.indexOf('list:') === 0) return 5; return { 'tag:followup': 6, 'tag:delegated': 7, 'status:paused': 8, done: 9, all: 10 }[k] || 20; };
+      order.sort(function (a, b) { return rank(a) - rank(b) || keys.indexOf(a) - keys.indexOf(b); });
+    }
+    var vis = db.settings.layout.tileVis;
+    return order.map(function (k) { var x = out[keys.indexOf(k)]; x.on = vis[k] != null ? !!vis[k] : x.def; return x; });
+  }
+  function homeTilesHtml() {
+    var xs = tileDefs().filter(function (x) { return x.on; });
+    if (!xs.length) return '';
+    return '<div class="tiles eight list-tiles" style="margin-top:14px">' + xs.map(function (x) {
+      return '<button class="tile' + (x.cls ? ' ' + x.cls : '') + '" data-go="' + esc(x.route) + '" data-tile="' + esc(x.key) + '"><div class="l">' + esc(x.label) + (x.sub ? ' <span class="tile-sub">' + esc(x.sub) + '</span>' : '') + '</div><div class="n">' + x.n + '</div></button>';
+    }).join('') + '</div>';
+  }
+  var _home110 = screens.home;
+  screens.home = function () {
+    var h = _home110(), i = h.indexOf('<div class="tiles eight"');
+    if (i < 0) return h;
+    var end = h.indexOf('</button></div>', i); if (end < 0) return h;
+    end += 15;
+    if (h.substr(end, 30) === '<button class="all-tasks-link"') end = h.indexOf('</button>', end) + 9;
+    return h.slice(0, i) + homeTilesHtml() + h.slice(end);
+  };
+
+  /* ---------- menu: counts for new entries, hide what you don't use ---------- */
+  var _renderDrawer110 = renderDrawer;
+  renderDrawer = function () {
+    _renderDrawer110();
+    var nav = $('#drawerNav'); if (!nav) return;
+    function badge(route, n) {
+      var a = nav.querySelector('.nav-link[data-go="' + route + '"]'); if (!a) return;
+      var b = a.querySelector('.badge');
+      if (!n) { if (b) b.remove(); return; }
+      if (b) b.textContent = n; else a.insertAdjacentHTML('beforeend', '<span class="badge">' + n + '</span>');
+    }
+    ordered(db.lists).forEach(function (l) { if (!l.builtin) badge(l.id, sel.inList(l.id).length); });
+    ordered(db.tags).forEach(function (g) { badge(tagRoute(g), g.id === 'delegated' ? sel.delegatedAll().length : sel.withTag(g.id).length + (g.id === 'followup' ? 0 : 0)); });
+    ordered(db.statuses).forEach(function (s) { var r = statusRoute(s); if (r && r !== 'archive') badge(r, sel.withStatus(s.id).length); });
+    var hidden = db.settings.layout.menuHidden.slice();
+    db.lists.forEach(function (l) { if (l.hidden) hidden.push(l.id); });
+    if (!tagById('followup')) hidden.push('followup');
+    if (!tagById('delegated')) hidden.push('delegated');
+    if (!statusById('paused')) hidden.push('paused');
+    hidden.forEach(function (r) { $all('.nav-link[data-go="' + r + '"]', nav).forEach(function (a) { if (a.getAttribute('aria-current') !== 'page') a.remove(); }); });
+  };
+
+  /* builtin list renamed: the page title follows */
+  var _render110 = render;
+  render = function (rs) {
+    if (!ROUTES[ui.route.name]) ui.route = { name: 'home', id: '' };
+    _render110(rs);
+    var r = ui.route.name, name = '';
+    var l = listById(r); if (l && l.builtin) name = l.name;
+    if (TAG_ROUTES[r] === r) { var g = tagById(r); if (g) name = g.name; }
+    if (r === 'paused') name = (statusById('paused') || {}).name || '';
+    var h1 = name && $('#screen .page-head h1');
+    if (h1 && h1.textContent !== name) h1.textContent = name;
+  };
+
+  /* ================= Lists, tags & layout (settings) ================= */
+  function rowBtns(act, id, extra) { return (extra || '') + '<button type="button" class="tiny-btn" data-act="' + act + '" data-id="' + esc(id) + '">Edit</button>'; }
+  function visBtn(act, id, on, what) { return '<button type="button" class="icon-btn vis-btn" data-act="' + act + '" data-id="' + esc(id) + '" aria-pressed="' + !!on + '" aria-label="' + (on ? 'Hide ' : 'Show ') + esc(what) + '">' + (on ? ICON.eye : ICON.eyeOff) + '</button>'; }
+  function dot(c) { return '<span class="tg-dot tg-' + esc(c || 'gray') + '"></span>'; }
+  screens.structure = function () {
+    var L = db.settings.layout, html = head('Lists, tags & layout', 'Shape the app around how you work. Drag ⋮⋮ to reorder.');
+    html += section('Lists', db.lists.length, '<button class="link-btn" data-act="newList">+ New list</button>');
+    html += sortList('lists', 'lists', ordered(db.lists).map(function (l) {
+      var n = l.builtin ? '' : ' · ' + sel.inList(l.id).length + ' open';
+      var meta = (l.builtin ? 'Built-in' : 'Your list') + n + (l.sort && l.sort !== 'manual' ? ' · sorted by ' + label(LIST_SORTS, l.sort).toLowerCase() : '') + (l.hidden ? ' · hidden' : '');
+      return sortItem(l.id, l.name, '<div class="st-row' + (l.hidden ? ' off' : '') + '">' + ICON.list + '<span class="st-name">' + esc(l.name) + '<span class="muted small">' + esc(meta) + '</span></span>' + visBtn('listVis', l.id, !l.hidden, l.name) + rowBtns('editList', l.id) + '</div>');
+    }).join(''), 'list st-list');
+    html += '<p class="muted small st-hint">Built-in lists can be renamed, sorted and hidden. Today and Most important are smart lists: they show tasks by date and by priority.</p>';
+    html += section('Statuses', db.statuses.length, '<button class="link-btn" data-act="newStatus">+ New status</button>');
+    html += sortList('statuses', 'statuses', ordered(db.statuses).map(function (s) {
+      var n = s.id === 'done' ? '' : ' · ' + plural(db.tasks.filter(function (t) { return !t.done && (t.status || 'todo') === s.id; }).length, 'task');
+      return sortItem(s.id, s.name, '<div class="st-row">' + dot(s.color) + '<span class="st-name">' + esc(s.name) + '<span class="muted small">' + (s.builtin ? 'Built-in' : 'Your status') + n + '</span></span>' + rowBtns('editStatus', s.id) + '</div>');
+    }).join(''), 'list st-list');
+    html += section('Tags', db.tags.length, '<button class="link-btn" data-act="newTag">+ New tag</button>');
+    html += db.tags.length ? sortList('tags', 'tags', ordered(db.tags).map(function (g) {
+      return sortItem(g.id, g.name, '<div class="st-row">' + dot(g.color) + '<span class="st-name">#' + esc(g.name) + '<span class="muted small">' + plural(sel.withTag(g.id).length, 'open task') + '</span></span>' + rowBtns('editTag', g.id) + '</div>');
+    }).join(''), 'list st-list') : '<div class="empty">No tags. Add one to group tasks across lists.</div>';
+    html += section('Home tiles', null, '<button class="link-btn" data-act="resetTiles">Reset</button>');
+    html += '<p class="muted small st-hint">Tiles with counts on Home. Turn on the ones you want, drag to set the order. New lists appear here automatically.</p>';
+    html += sortList('homeTiles', 'homeTiles', tileDefs().map(function (x) {
+      return sortItem(x.key, x.label, '<label class="st-row check-line"><input type="checkbox" data-chg="tileVis" data-id="' + esc(x.key) + '"' + (x.on ? ' checked' : '') + '><span class="st-name">' + esc(x.label) + '<span class="muted small">' + ({ list: 'List', tag: 'Tag', status: 'Status', view: 'View' }[x.kind]) + ' · ' + x.n + '</span></span></label>');
+    }).join(''), 'list st-list');
+    html += section('Menu');
+    html += '<p class="muted small st-hint">Untick what you don’t use to hide it from the ☰ menu. Hidden screens still work from links.</p><div class="card set-card">';
+    DRAWER_GROUPS.forEach(function (g) {
+      var items = g[1].filter(function (r) { return ROUTES[r] && r !== 'settings' && r !== 'structure'; });
+      if (!items.length) return;
+      html += '<div class="st-group"><div class="st-gname">' + esc(g[0]) + '</div><div class="st-checks">' + items.map(function (r) {
+        return '<label class="check-row"><input type="checkbox" data-chg="menuVis" data-id="' + esc(r) + '"' + (L.menuHidden.indexOf(r) < 0 ? ' checked' : '') + '><span>' + esc(ROUTES[r].title) + '</span></label>';
+      }).join('') + '</div></div>';
+    });
+    html += '</div>';
+    var starts = ['home', 'alltasks', 'inbox', 'today', 'urgent', 'anytime', 'calendar', 'kanban', 'projects', 'notes'].concat(ordered(db.lists).filter(function (l) { return !l.builtin; }).map(listRoute));
+    var newIn = [['inbox', label(LISTS, 'inbox')], ['anytime', label(LISTS, 'anytime')], ['someday', label(LISTS, 'someday')]].concat(ordered(db.lists).filter(function (l) { return !l.builtin; }).map(function (l) { return [l.id, l.name]; }));
+    html += section('Pages & task rows') + '<div class="card set-card">' +
+      '<label class="set-row"><span class="set-l">Open the app on</span><select data-chg="setLayout" data-k="start">' + options(starts.filter(function (r) { return ROUTES[r]; }).map(function (r) { return [r, ROUTES[r].title]; }), db.settings.start || 'home') + '</select></label>' +
+      '<label class="set-row"><span class="set-l">New tasks from Home and All tasks go to</span><select data-chg="setLayout" data-k="newTaskList">' + options(newIn, L.newTaskList) + '</select></label>' +
+      '<label class="set-row"><span class="set-l">All tasks: show empty lists as drop targets</span><input type="checkbox" data-chg="setLayout" data-k="emptyLists"' + (L.emptyLists ? ' checked' : '') + '></label>' +
+      '<label class="set-row"><span class="set-l">Show status on task rows</span><input type="checkbox" data-chg="setLayout" data-k="rowStatus"' + (L.rowStatus ? ' checked' : '') + '></label>' +
+      '<label class="set-row"><span class="set-l">Show tags on task rows</span><input type="checkbox" data-chg="setLayout" data-k="rowTags"' + (L.rowTags ? ' checked' : '') + '></label>' +
+      '</div>';
+    return html;
+  };
+  SORT_HANDLERS.lists = collHandler(function () { return db.lists; }, function () { syncMeta(); });
+  SORT_HANDLERS.statuses = collHandler(function () { return db.statuses; }, function () { syncMeta(); });
+  SORT_HANDLERS.tags = collHandler(function () { return db.tags; }, function () { syncMeta(); });
+  SORT_HANDLERS.homeTiles = function (ids) { db.settings.layout.tiles = ids; saved(); };
+  actions.resetTiles = function () { db.settings.layout.tiles = []; db.settings.layout.tileVis = {}; saved(); toast('Home tiles reset'); };
+  actions.tileVis = function (el) { db.settings.layout.tileVis[el.dataset.id] = !!el.checked; db.settings.layout.tiles = tileDefs().map(function (x) { return x.key; }); save(); };
+  actions.menuVis = function (el) {
+    var h = db.settings.layout.menuHidden, r = el.dataset.id, i = h.indexOf(r);
+    if (el.checked && i >= 0) h.splice(i, 1); else if (!el.checked && i < 0) h.push(r);
+    save();
+  };
+  actions.setLayout = function (el) {
+    var k = el.dataset.k, v = el.type === 'checkbox' ? !!el.checked : el.value;
+    if (k === 'start') db.settings.start = v; else db.settings.layout[k] = v;
+    save(); toast('Saved');
+  };
+  actions.listVis = function (el) {
+    var l = listById(el.dataset.id); if (!l) return;
+    if (!l.hidden && visibleLists().length <= 1) { toast('Keep at least one list visible'); return; }
+    l.hidden = !l.hidden; save(); render(); toast(l.name + (l.hidden ? ' hidden' : ' shown'));
+  };
+  /* inputs in the settings screen act on change, not on click */
+  document.addEventListener('change', function (e) {
+    var el = e.target; if (!el || !el.closest || !el.closest('#screen')) return;
+    var a = el.dataset && el.dataset.chg;
+    if (a && actions[a]) actions[a](el);
+  });
+
+  /* ---------- list, status and tag forms ---------- */
+  function colorSelect(cur) { return '<label class="field"><span>Colour</span><select name="color">' + options(COLORS, cur || 'gray') + '</select></label>'; }
+  function listForm(l) {
+    var isNew = !l, L = db.settings.layout, key = l ? 'list:' + l.id : '';
+    var onHome = l ? (L.tileVis[key] != null ? !!L.tileVis[key] : true) : true, inMenu = l ? L.menuHidden.indexOf(l.id) < 0 : true;
+    openSheet(isNew ? 'New list' : 'Edit list', '<form data-form="list" data-id="' + esc(l ? l.id : '') + '" novalidate>' +
+      '<label class="field"><span>Name</span><input name="name" value="' + esc(l ? l.name : '') + '" required maxlength="60" autofocus placeholder="e.g. Errands, Calls, Betterplace"></label>' +
+      '<label class="field"><span>Sort tasks by</span><select name="sort">' + options(LIST_SORTS, (l && l.sort) || 'manual') + '</select></label>' +
+      '<label class="check-row"><input type="checkbox" name="visible"' + (!l || !l.hidden ? ' checked' : '') + '><span>Show this list</span></label>' +
+      '<label class="check-row"><input type="checkbox" name="home"' + (onHome ? ' checked' : '') + '><span>Tile with count on Home</span></label>' +
+      '<label class="check-row"><input type="checkbox" name="menu"' + (inMenu ? ' checked' : '') + '><span>In the ☰ menu</span></label>' +
+      (l && l.builtin ? '<p class="muted small">' + (l.id === 'today' ? 'Smart list: tasks dated today or earlier.' : l.id === 'urgent' ? 'Smart list: open tasks with priority Urgent.' : 'Built-in list. You can rename and hide it, not delete it.') + '</p>' : '') +
+      '<p class="err" id="listErr" role="alert"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">' + (isNew ? 'Create list' : 'Save list') + '</button>' + (l && !l.builtin ? '<button type="button" class="btn danger block" data-act="deleteList" data-id="' + esc(l.id) + '">Delete list</button>' : '') + '</div></form>');
+  }
+  submitters.list = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#listErr').textContent = 'Give the list a name.'; return; }
+    var E = form.elements, id = form.dataset.id, l = id ? listById(id) : null, isNew = !l;
+    if (!l && !id) { l = { id: 'l_' + uid(), builtin: false, order: Math.max.apply(null, db.lists.map(function (x) { return x.order || 0; }).concat([0])) + 1 }; db.lists.push(l); }
+    if (!l) { closeSheet(); return; }
+    if (l.builtin && l.short && name !== l.name) delete l.short;
+    l.name = name.slice(0, 60); l.sort = E.sort.value || 'manual';
+    var wantVis = E.visible.checked;
+    if (!wantVis && !l.hidden && visibleLists().length <= 1) wantVis = true;
+    l.hidden = !wantVis;
+    var L = db.settings.layout, mi = L.menuHidden.indexOf(l.id);
+    L.tileVis['list:' + l.id] = !!E.home.checked;
+    if (E.menu.checked && mi >= 0) L.menuHidden.splice(mi, 1); else if (!E.menu.checked && mi < 0) L.menuHidden.push(l.id);
+    syncMeta(); save(); closeSheet();
+    if (isNew) { go(l.id); toast('List created. Drag tasks into it on All tasks.'); } else { render(); toast('List saved'); }
+  };
+  actions.newList = function () { listForm(null); };
+  actions.editList = function (el) { var l = listById(el.dataset.id); if (l) listForm(l); };
+  actions.deleteList = function (el) {
+    var l = listById(el.dataset.id); if (!l || l.builtin) return;
+    var n = db.tasks.filter(function (t) { return t.list === l.id; }).length;
+    if (!confirm('Delete the list “' + l.name + '”?' + (n ? ' Its ' + n + ' task' + (n > 1 ? 's' : '') + ' move to Inbox.' : ''))) return;
+    db.tasks.forEach(function (t) { if (t.list === l.id) t.list = 'inbox'; });
+    db.lists = db.lists.filter(function (x) { return x.id !== l.id; });
+    var L = db.settings.layout; delete L.tileVis['list:' + l.id]; L.tiles = L.tiles.filter(function (k) { return k !== 'list:' + l.id; });
+    L.menuHidden = L.menuHidden.filter(function (r) { return r !== l.id; });
+    if (L.newTaskList === l.id) L.newTaskList = 'inbox';
+    if (db.settings.start === l.id) db.settings.start = 'home';
+    syncMeta(); save(); closeSheet(true);
+    if (ui.route.name === l.id) { ui.route = { name: 'structure', id: '' }; render(true); } else render();
+    toast('List deleted');
+  };
+
+  function statusForm(s) {
+    var locked = s && LOCKED_STATUSES.indexOf(s.id) >= 0;
+    openSheet(s ? 'Edit status' : 'New status', '<form data-form="status" data-id="' + esc(s ? s.id : '') + '" novalidate>' +
+      '<label class="field"><span>Name</span><input name="name" value="' + esc(s ? s.name : '') + '" required maxlength="40" autofocus placeholder="e.g. Waiting for payment, Review"></label>' + colorSelect(s && s.color) +
+      (s && s.id === 'archived' ? '<p class="muted small">Archived tasks leave every list and show only under Archive.</p>' : s && s.id === 'paused' ? '<p class="muted small">Paused tasks stay out of Today and are listed under Paused.</p>' : '') +
+      (locked ? '<p class="muted small">This status is needed by the app: you can rename it, not delete it.</p>' : '') +
+      '<p class="err" id="statusErr" role="alert"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">' + (s ? 'Save status' : 'Create status') + '</button>' + (s && !locked ? '<button type="button" class="btn danger block" data-act="deleteStatus" data-id="' + esc(s.id) + '">Delete status</button>' : '') + '</div></form>');
+  }
+  submitters.status = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#statusErr').textContent = 'Give the status a name.'; return; }
+    var id = form.dataset.id, s = id ? statusById(id) : null;
+    if (!s) { s = { id: 'st_' + uid(), builtin: false, order: Math.max.apply(null, db.statuses.map(function (x) { return x.order || 0; }).concat([0])) + 1 }; db.statuses.push(s); }
+    s.name = name.slice(0, 40); s.color = form.elements.color.value || 'gray';
+    syncMeta(); save(); closeSheet(); render(); toast('Status saved');
+  };
+  actions.newStatus = function () { statusForm(null); };
+  actions.editStatus = function (el) { var s = statusById(el.dataset.id); if (s) statusForm(s); };
+  actions.deleteStatus = function (el) {
+    var s = statusById(el.dataset.id); if (!s || LOCKED_STATUSES.indexOf(s.id) >= 0) return;
+    var n = db.tasks.filter(function (t) { return !t.done && t.status === s.id; }).length;
+    if (!confirm('Delete the status “' + s.name + '”?' + (n ? ' Its ' + n + ' task' + (n > 1 ? 's' : '') + ' go back to ' + statusById('todo').name + '.' : ''))) return;
+    db.tasks.forEach(function (t) { if (t.status === s.id) t.status = 'todo'; });
+    db.statuses = db.statuses.filter(function (x) { return x.id !== s.id; });
+    var r = statusRoute(s); if (r) db.settings.layout.menuHidden = db.settings.layout.menuHidden.filter(function (x) { return x !== r; });
+    syncMeta(); save(); closeSheet(true);
+    if (ui.route.name === r) { ui.route = { name: 'structure', id: '' }; render(true); } else render();
+    toast('Status deleted');
+  };
+
+  function tagForm(g) {
+    openSheet(g ? 'Edit tag' : 'New tag', '<form data-form="tag" data-id="' + esc(g ? g.id : '') + '" novalidate>' +
+      '<label class="field"><span>Name</span><input name="name" value="' + esc(g ? g.name : '') + '" required maxlength="40" autofocus placeholder="e.g. Calls, Errands, Betterplace"></label>' + colorSelect(g && g.color) +
+      (g && g.id === 'delegated' ? '<p class="muted small">Tasks you delegate to an assistant get this tag automatically.</p>' : '') +
+      '<p class="err" id="tagErr" role="alert"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">' + (g ? 'Save tag' : 'Create tag') + '</button>' + (g ? '<button type="button" class="btn danger block" data-act="deleteTag" data-id="' + esc(g.id) + '">Delete tag</button>' : '') + '</div></form>');
+  }
+  submitters.tag = function (form) {
+    var name = val(form, 'name').replace(/^#/, ''); if (!name) { $('#tagErr').textContent = 'Give the tag a name.'; return; }
+    var id = form.dataset.id, g = id ? tagById(id) : null;
+    if (!g && db.tags.some(function (x) { return x.name.toLowerCase() === name.toLowerCase(); })) { $('#tagErr').textContent = 'A tag with this name already exists.'; return; }
+    if (!g) { g = { id: 'tg_' + uid(), builtin: false, order: Math.max.apply(null, db.tags.map(function (x) { return x.order || 0; }).concat([0])) + 1 }; db.tags.push(g); }
+    g.name = name.slice(0, 40); g.color = form.elements.color.value || 'gray';
+    syncMeta(); save(); closeSheet(); render(); toast('Tag saved');
+  };
+  actions.newTag = function () { tagForm(null); };
+  actions.editTag = function (el) { var g = tagById(el.dataset.id); if (g) tagForm(g); };
+  actions.deleteTag = function (el) {
+    var g = tagById(el.dataset.id); if (!g) return;
+    var n = db.tasks.filter(function (t) { return hasTag(t, g.id); }).length;
+    if (!confirm('Delete the tag “' + g.name + '”?' + (n ? ' It is removed from ' + n + ' task' + (n > 1 ? 's' : '') + '; the tasks stay.' : ''))) return;
+    db.tasks.forEach(function (t) { if (hasTag(t, g.id)) t.tags = t.tags.filter(function (x) { return x !== g.id; }); });
+    db.tags = db.tags.filter(function (x) { return x.id !== g.id; });
+    var r = tagRoute(g); db.settings.layout.menuHidden = db.settings.layout.menuHidden.filter(function (x) { return x !== r; });
+    syncMeta(); save(); closeSheet(true);
+    if (ui.route.name === r) { ui.route = { name: 'structure', id: '' }; render(true); } else render();
+    toast('Tag deleted');
+  };
+
+  /* Settings links to the new screen */
+  var _settings110 = screens.settings;
+  screens.settings = function () {
+    var h = _settings110(), link = '<button class="all-tasks-link st-link" data-go="structure"><span>' + ICON.list + 'Lists, statuses, tags, Home tiles and menu</span>' + ICON.chev + '</button>';
+    var i = h.indexOf('<div class="section">');
+    return i >= 0 ? h.slice(0, i) + link + h.slice(i) : h + link;
+  };
+  if (db) syncMeta(db);
+
+  /* ================= v1.10: sections from the feature list (brought over from the unpublished 1.6 work) ================= */
+  var _normalize110x = normalize;
+  normalize = function (d) {
+    d = _normalize110x(d);
+    if (!Array.isArray(d.shopLists)) d.shopLists = [{ id: 'ls_shopping', name: 'Shopping', order: 0 }, { id: 'ls_groceries', name: 'Groceries', order: 1 }, { id: 'ls_packing', name: 'Travel packing', order: 2 }];
+    ['listItems', 'inboxes', 'snippets', 'socials', 'features'].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
+    if (!d.visited || typeof d.visited !== 'object' || Array.isArray(d.visited)) d.visited = {};
+    ['countries', 'parks', 'places'].forEach(function (k) { if (!d.visited[k] || typeof d.visited[k] !== 'object') d.visited[k] = {}; });
+    if (typeof d.mindset !== 'string') d.mindset = '';
+    var W = d.settings.widgets; ['fx2', 'indices', 'calc'].forEach(function (k) { if (W[k] == null) W[k] = true; });
+    d.inboxes.forEach(function (x) { if (!x.checked || typeof x.checked !== 'object') x.checked = {}; });
+    return d;
+  };
+  function sortByOrder(a) { return a.slice().sort(function (x, y) { return (x.order || 0) - (y.order || 0); }); }
+  function nextOrder(a) { return a.reduce(function (m, x) { return Math.max(m, x.order || 0); }, 0) + 1; }
+  function checkRow(on, act, id, label, body, extra) {
+    return '<div class="task' + (on ? ' done' : '') + '"><span style="width:12px"></span><button class="check" role="checkbox" aria-checked="' + on + '" data-act="' + act + '" data-id="' + esc(id) + '" aria-label="' + esc(label) + '"><span class="box">' + ICON.tick + '</span></button>' + body + (extra || '') + '</div>';
+  }
+
+  function svg(p, fill) { return '<svg viewBox="0 0 24 24" fill="' + (fill ? 'currentColor' : 'none') + '" stroke="' + (fill ? 'none' : 'currentColor') + '" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>'; }
+  ICON.visited = svg('<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><path d="M9.5 10l2 2 3.5-3.5"/>');
+  ICON.inboxes = svg('<path d="M4 6.5h16v11H4z"/><path d="M4 7l8 6 8-6"/><circle cx="19" cy="5.5" r="2.5" fill="currentColor" stroke="none"/>');
+  ICON.snippets = svg('<rect x="8.5" y="8.5" width="11" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/>');
+  ICON.shop = svg('<path d="M5.5 8h13l-1 12.5h-11z"/><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5"/>');
+  ICON.socials = svg('<circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.3 6.7"/>');
+  ICON.features = svg('<path d="M9.5 17.5h5M10 20.5h4M12 3.5a5.5 5.5 0 0 0-3.3 9.9c.6.5.8 1.1.8 1.8v.3h5v-.3c0-.7.3-1.3.8-1.8A5.5 5.5 0 0 0 12 3.5z"/>');
+  ICON.calc = svg('<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>');
+  /* ---------- simple text sheet used by several sections ---------- */
+  function itemSheet(o) {
+    openSheet(o.title, '<form data-form="' + o.form + '" data-id="' + esc(o.id || '') + '" novalidate>' + o.fields + '<p class="hint" id="itemErr" role="alert" style="color:var(--bad)"></p>' +
+      '<div class="actions"><button class="btn block" type="submit">Save</button>' + (o.id ? '<button type="button" class="btn danger block" data-act="' + o.del + '" data-id="' + esc(o.id) + '">Delete</button>' : '') + '</div></form>');
+  }
+  function fieldIn(name, label, value, extra) { return '<label class="field"><span>' + label + '</span><input name="' + name + '" value="' + esc(value || '') + '"' + (extra || '') + '></label>'; }
+  function removeById(key, id) { db[key] = db[key].filter(function (x) { return x.id !== id; }); save(); closeSheet(); render(); }
+
+  /* ---------- Shopping lists (shopping, groceries, packing, your own) ---------- */
+  ui.listId = '';
+  screens.shopping = function () {
+    var lists = sortByOrder(db.shopLists), cur = byId(db.shopLists, ui.listId) || lists[0];
+    var html = head('Shopping lists', 'Tick items off as you go. Done items move down.', '<button class="btn ghost" data-act="newShopList">+ List</button>');
+    if (!cur) return html + '<div class="empty">No lists yet. Tap + List.</div>';
+    html += '<div class="chips">' + lists.map(function (l) {
+      var n = db.listItems.filter(function (i) { return i.list === l.id && !i.done; }).length;
+      return '<button class="chip-btn" data-act="pickShop" data-id="' + esc(l.id) + '" aria-pressed="' + (l.id === cur.id) + '">' + esc(l.name) + (n ? ' · ' + n : '') + '</button>';
+    }).join('') + '</div>';
+    var items = db.listItems.filter(function (i) { return i.list === cur.id; });
+    var open = sortByOrder(items.filter(function (i) { return !i.done; })), done = items.filter(function (i) { return i.done; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); });
+    html += '<div class="list">' + open.map(function (i) { return checkRow(false, 'listToggle', i.id, 'Got ' + i.text, '<button class="task-body" data-act="editListItem" data-id="' + esc(i.id) + '"><span class="task-title">' + esc(i.text) + '</span></button>'); }).join('') + '</div>';
+    html += '<form class="mini-add" data-form="listItem" data-list="' + esc(cur.id) + '" novalidate autocomplete="off"><input class="input" id="listAddIn" name="text" placeholder="Add to ' + esc(cur.name) + '" enterkeyhint="done" aria-label="New item"><button class="btn" type="submit">Add</button></form>';
+    if (done.length) html += section('Done', done.length, '<button class="link-btn" data-act="clearListDone" data-id="' + esc(cur.id) + '">Clear</button>') +
+      '<div class="list">' + done.map(function (i) { return checkRow(true, 'listToggle', i.id, 'Put back ' + i.text, '<button class="task-body" data-act="editListItem" data-id="' + esc(i.id) + '"><span class="task-title">' + esc(i.text) + '</span></button>'); }).join('') + '</div>';
+    return html + '<div class="btn-row" style="margin-top:14px"><button class="tiny-btn" data-act="editShopList" data-id="' + esc(cur.id) + '">Rename or delete “' + esc(cur.name) + '”</button></div>';
+  };
+  actions.pickShop = function (el) { ui.listId = el.dataset.id; render(); };
+  submitters.listItem = function (form) {
+    var text = val(form, 'text'); if (!text) return;
+    var list = form.dataset.list;
+    text.split(/\n|,\s*(?=\S)/).map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (t) {
+      db.listItems.push({ id: 'li_' + uid(), list: list, text: t, done: false, order: nextOrder(db.listItems), createdAt: Date.now() });
+    });
+    ui.listId = list; save(); render();
+    var i = $('#listAddIn'); if (i) i.focus();
+  };
+  actions.listToggle = function (el) { var i = byId(db.listItems, el.dataset.id); if (!i) return; i.done = !i.done; i.doneAt = i.done ? Date.now() : 0; save(); render(); };
+  actions.clearListDone = function (el) { db.listItems = db.listItems.filter(function (i) { return !(i.list === el.dataset.id && i.done); }); save(); render(); toast('Cleared'); };
+  actions.editListItem = function (el) { var i = byId(db.listItems, el.dataset.id); if (i) itemSheet({ title: 'Edit item', form: 'listItemEdit', id: i.id, del: 'deleteListItem', fields: fieldIn('text', 'Item', i.text, ' required autofocus') }); };
+  submitters.listItemEdit = function (form) { var i = byId(db.listItems, form.dataset.id), t = val(form, 'text'); if (!i) return; if (!t) { $('#itemErr').textContent = 'Write the item.'; return; } i.text = t; save(); closeSheet(); render(); };
+  actions.deleteListItem = function (el) { removeById('listItems', el.dataset.id); };
+  actions.newShopList = function () { itemSheet({ title: 'New list', form: 'shopList', fields: fieldIn('name', 'List name', '', ' required autofocus placeholder="Hardware store, Pharmacy…"') }); };
+  actions.editShopList = function (el) { var l = byId(db.shopLists, el.dataset.id); if (l) itemSheet({ title: 'Edit list', form: 'shopList', id: l.id, del: 'deleteShopList', fields: fieldIn('name', 'List name', l.name, ' required autofocus') }); };
+  submitters.shopList = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#itemErr').textContent = 'Name the list.'; return; }
+    var l = form.dataset.id ? byId(db.shopLists, form.dataset.id) : { id: 'ls_' + uid(), order: nextOrder(db.shopLists) };
+    l.name = name; if (!form.dataset.id) db.shopLists.push(l);
+    ui.listId = l.id; save(); closeSheet(); render();
+  };
+  actions.deleteShopList = function (el) {
+    if (!confirm('Delete this list and everything in it?')) return;
+    var id = el.dataset.id; db.listItems = db.listItems.filter(function (i) { return i.list !== id; }); ui.listId = ''; removeById('shopLists', id);
+  };
+
+  /* ---------- Places visited: countries, US national parks, top destinations ---------- */
+  var COUNTRY_CODES = ('AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE KI KP KR KW KG LA LV LB LS LR LY LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PA PG PY PE PH PL PT QA RO RU RW KN LC VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA SS ES LK SD SR SE CH SY TJ TZ TH TL TG TO TT TN TR TM TV UG UA AE GB US UY UZ VU VE VN YE ZM ZW VA PS TW XK HK MO PR').split(' ');
+  var US_PARKS = ['Acadia', 'American Samoa', 'Arches', 'Badlands', 'Big Bend', 'Biscayne', 'Black Canyon of the Gunnison', 'Bryce Canyon', 'Canyonlands', 'Capitol Reef', 'Carlsbad Caverns', 'Channel Islands', 'Congaree', 'Crater Lake', 'Cuyahoga Valley', 'Death Valley', 'Denali', 'Dry Tortugas', 'Everglades', 'Gates of the Arctic', 'Gateway Arch', 'Glacier', 'Glacier Bay', 'Grand Canyon', 'Grand Teton', 'Great Basin', 'Great Sand Dunes', 'Great Smoky Mountains', 'Guadalupe Mountains', 'Haleakalā', 'Hawaiʻi Volcanoes', 'Hot Springs', 'Indiana Dunes', 'Isle Royale', 'Joshua Tree', 'Katmai', 'Kenai Fjords', 'Kings Canyon', 'Kobuk Valley', 'Lake Clark', 'Lassen Volcanic', 'Mammoth Cave', 'Mesa Verde', 'Mount Rainier', 'New River Gorge', 'North Cascades', 'Olympic', 'Petrified Forest', 'Pinnacles', 'Redwood', 'Rocky Mountain', 'Saguaro', 'Sequoia', 'Shenandoah', 'Theodore Roosevelt', 'Virgin Islands', 'Voyageurs', 'White Sands', 'Wind Cave', 'Wrangell–St. Elias', 'Yellowstone', 'Yosemite', 'Zion'];
+  var TOP_PLACES = ['Amalfi Coast', 'Amsterdam', 'Angkor Wat', 'Bali', 'Banff', 'Bangkok', 'Barcelona', 'Bora Bora', 'Budapest', 'Cancún & Tulum', 'Cape Town', 'Dubai', 'Dubrovnik', 'Edinburgh', 'Florence', 'Galápagos Islands', 'Grand Canyon', 'Great Barrier Reef', 'Great Wall of China', 'Ha Long Bay', 'Havana', 'Hawaii', 'Hong Kong', 'Iceland', 'Istanbul', 'Kyoto', 'Lisbon', 'London', 'Machu Picchu', 'Maldives', 'Marrakech', 'New York City', 'Paris', 'Patagonia', 'Petra', 'Prague', 'Pyramids of Giza', 'Rio de Janeiro', 'Rome', 'Santorini', 'Serengeti', 'Seoul', 'Singapore', 'Swiss Alps', 'Sydney', 'Taj Mahal', 'Tokyo', 'Vancouver', 'Venice', 'Vienna'];
+  var regionNames = null; try { regionNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { /* old browser */ }
+  function countryName(c) { try { return (regionNames && regionNames.of(c)) || c; } catch (e) { return c; } }
+  function flag(c) { return c.replace(/./g, function (ch) { return String.fromCodePoint(127397 + ch.charCodeAt(0)); }); }
+  var VISITED_TABS = [['countries', 'Countries'], ['parks', 'US national parks'], ['places', 'Top destinations']];
+  ui.visitedTab = 'countries';
+  function visitedRows(kind) {
+    if (kind === 'countries') return COUNTRY_CODES.map(function (c) { return { key: c, name: countryName(c), icon: flag(c) }; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var base = kind === 'parks' ? US_PARKS : TOP_PLACES;
+    var extra = Object.keys(db.visited[kind]).filter(function (k) { return base.indexOf(k) < 0; });
+    return base.concat(extra).sort(function (a, b) { return a.localeCompare(b); }).map(function (n) { return { key: n, name: n, icon: '' }; });
+  }
+  screens.visited = function () {
+    var k = ui.visitedTab, V = db.visited[k], rows = visitedRows(k);
+    var total = k === 'places' ? null : rows.length, n = Object.keys(V).length;
+    var html = head('Places visited', VISITED_TABS.map(function (x) { return Object.keys(db.visited[x[0]]).length + ' ' + x[1].toLowerCase(); }).join(' · '));
+    html += '<div class="seg" role="group" aria-label="Which list">' + VISITED_TABS.map(function (x) { return '<button data-act="visitedTab" data-v="' + x[0] + '" aria-pressed="' + (x[0] === k) + '">' + (x[0] === 'parks' ? 'US parks' : x[1].replace('Top destinations', 'Top places')) + '</button>'; }).join('') + '</div>';
+    html += '<div class="visit-sum"><strong>' + n + '</strong>' + (total ? ' of ' + total : '') + ' visited' + (total ? '<span class="vbar"><i style="width:' + Math.round(100 * n / total) + '%"></i></span>' : '') + '</div>';
+    html += '<input class="input search" type="search" placeholder="Find" data-vfilter aria-label="Find in the list">';
+    function row(r) { var on = !!V[r.key]; return '<div data-vname="' + esc(r.name.toLowerCase()) + '">' + checkRow(on, 'visitToggle', r.key, (on ? 'Unmark ' : 'Mark visited: ') + r.name, '<span class="task-body"><span class="task-title">' + (r.icon ? r.icon + ' ' : '') + esc(r.name) + '</span>' + (on && V[r.key] !== true ? '<span class="meta"><span>' + esc(fmtDate(V[r.key], { full: true })) + '</span></span>' : '') + '</span>') + '</div>'; }
+    var seen = rows.filter(function (r) { return V[r.key]; }), rest = rows.filter(function (r) { return !V[r.key]; });
+    if (seen.length) html += section('Visited', seen.length) + '<div class="list vlist">' + seen.map(row).join('') + '</div>';
+    html += section('Not yet', rest.length) + '<div class="list vlist">' + rest.map(row).join('') + '</div>';
+    if (k !== 'countries') html += '<form class="mini-add" data-form="visitAdd" novalidate autocomplete="off"><input class="input" name="name" placeholder="Add a place that isn’t listed" aria-label="New place"><button class="btn" type="submit">Add</button></form>';
+    return html;
+  };
+  actions.visitedTab = function (el) { ui.visitedTab = el.dataset.v; render(true); };
+  actions.visitToggle = function (el) { var V = db.visited[ui.visitedTab], k = el.dataset.id; if (V[k]) delete V[k]; else V[k] = today(); save(); render(); };
+  submitters.visitAdd = function (form) { var n = val(form, 'name'); if (!n) return; db.visited[ui.visitedTab][n] = today(); save(); render(); toast('Added: ' + n); };
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-vfilter')) return;
+    var q = e.target.value.trim().toLowerCase();
+    $all('#screen [data-vname]').forEach(function (r) { r.hidden = !!q && r.dataset.vname.indexOf(q) < 0; });
+  });
+
+  /* ---------- Message inboxes: places to check every day ---------- */
+  screens.inboxes = function () {
+    var t = today(), xs = sortByOrder(db.inboxes), n = xs.filter(function (x) { return x.checked[t]; }).length;
+    var html = head('Message inboxes', 'Where messages arrive. Tick each one when you’ve checked it today.', '<button class="btn ghost" data-act="newInbox">+ Place</button>');
+    if (!xs.length) return html + '<div class="empty">Add the places you check: Gmail, Telegram, WhatsApp, Instagram DMs, work Slack…</div>';
+    html += section('Checked today', n + '/' + xs.length);
+    return html + '<div class="list">' + xs.map(function (x) {
+      return checkRow(!!x.checked[t], 'inboxCheck', x.id, 'Checked ' + x.name, '<button class="task-body" data-act="editInbox" data-id="' + esc(x.id) + '"><span class="task-title">' + esc(x.name) + '</span>' + (x.note ? '<span class="meta"><span>' + esc(x.note) + '</span></span>' : '') + '</button>',
+        x.link ? '<a class="tiny-btn link-tiny" href="' + esc(x.link) + '" target="_blank" rel="noopener noreferrer" data-inbox-open="' + esc(x.id) + '">Open</a>' : '');
+    }).join('') + '</div>';
+  };
+  function inboxForm(x) {
+    itemSheet({ title: x ? 'Edit place' : 'New place to check', form: 'inbox', id: x && x.id, del: 'deleteInbox',
+      fields: fieldIn('name', 'Name', x && x.name, ' required autofocus placeholder="Work email"') + fieldIn('link', 'Link (optional)', x && x.link, ' inputmode="url" autocapitalize="off" placeholder="https://mail.google.com, tg://, whatsapp://"') + fieldIn('note', 'Note', x && x.note, ' placeholder="Which account"') });
+  }
+  actions.newInbox = function () { inboxForm(null); };
+  actions.editInbox = function (el) { var x = byId(db.inboxes, el.dataset.id); if (x) inboxForm(x); };
+  submitters.inbox = function (form) {
+    var name = val(form, 'name'); if (!name) { $('#itemErr').textContent = 'Name the place.'; return; }
+    var x = form.dataset.id ? byId(db.inboxes, form.dataset.id) : { id: 'ib_' + uid(), order: nextOrder(db.inboxes), checked: {} };
+    var link = val(form, 'link'); x.name = name; x.link = link ? (/^[a-z][a-z0-9+.-]*:/i.test(link) ? link : normUrl(link)) : ''; x.note = val(form, 'note');
+    if (!form.dataset.id) db.inboxes.push(x);
+    save(); closeSheet(); render();
+  };
+  actions.deleteInbox = function (el) { removeById('inboxes', el.dataset.id); };
+  actions.inboxCheck = function (el) { var x = byId(db.inboxes, el.dataset.id), t = today(); if (!x) return; if (x.checked[t]) delete x.checked[t]; else x.checked[t] = true; save(); render(); };
+  /* Opening a place marks it checked; the link still opens normally. */
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('[data-inbox-open]'); if (!a) return;
+    var x = byId(db.inboxes, a.dataset.inboxOpen), t = today(); if (x && !x.checked[t]) { x.checked[t] = true; save(); setTimeout(render, 300); }
+  });
+
+  /* ---------- Copy-paste data ---------- */
+  ui.snipQuery = '';
+  screens.snippets = function () {
+    var q = ui.snipQuery.trim().toLowerCase();
+    var xs = db.snippets.filter(function (s) { return !q || (s.label + ' ' + s.value).toLowerCase().indexOf(q) >= 0; }).sort(function (a, b) { return (b.usedAt || b.createdAt || 0) - (a.usedAt || a.createdAt || 0); });
+    var html = head('Copy-paste data', 'Text you paste often. Tap Copy.', '<button class="btn ghost" data-act="newSnippet">+ Add</button>');
+    html += '<div class="notice" style="margin-bottom:12px">Not encrypted. Keep passwords, card numbers and documents in Safe Storage.</div>';
+    if (db.snippets.length > 6) html += '<input class="input search" type="search" placeholder="Search" data-snipq value="' + esc(ui.snipQuery) + '" aria-label="Search copy-paste data">';
+    if (!db.snippets.length) return html + '<div class="empty">Add things like your address, company details, IBAN for invoices, email signature, a standard reply.</div>';
+    return html + '<div class="list" id="snipList">' + xs.map(function (s) {
+      return '<div class="bm"><button class="media-body" data-act="editSnippet" data-id="' + esc(s.id) + '"><strong>' + esc(s.label) + '</strong><span class="muted small snip-val">' + esc(s.value) + '</span></button><button class="tiny-btn" data-act="copySnippet" data-id="' + esc(s.id) + '">Copy</button></div>';
+    }).join('') + '</div>';
+  };
+  document.addEventListener('input', function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute('data-snipq')) return;
+    ui.snipQuery = e.target.value; var tmp = document.createElement('div'); tmp.innerHTML = screens.snippets(); var a = $('#snipList'), b = tmp.querySelector('#snipList'); if (a && b) a.innerHTML = b.innerHTML;
+  });
+  function snippetForm(s) {
+    itemSheet({ title: s ? 'Edit' : 'New copy-paste item', form: 'snippet', id: s && s.id, del: 'deleteSnippet',
+      fields: fieldIn('label', 'Name', s && s.label, ' required autofocus placeholder="Home address"') + '<label class="field"><span>Text to copy</span><textarea name="value" rows="5" required>' + esc(s ? s.value : '') + '</textarea></label>' });
+  }
+  actions.newSnippet = function () { snippetForm(null); };
+  actions.editSnippet = function (el) { var s = byId(db.snippets, el.dataset.id); if (s) snippetForm(s); };
+  submitters.snippet = function (form) {
+    var label = val(form, 'label'), value = form.elements.value.value; if (!label || !value.trim()) { $('#itemErr').textContent = 'Add a name and the text.'; return; }
+    var s = form.dataset.id ? byId(db.snippets, form.dataset.id) : { id: 'sn_' + uid(), createdAt: Date.now() };
+    s.label = label; s.value = value; if (!form.dataset.id) db.snippets.push(s);
+    save(); closeSheet(); render();
+  };
+  actions.deleteSnippet = function (el) { removeById('snippets', el.dataset.id); };
+  actions.copySnippet = function (el) {
+    var s = byId(db.snippets, el.dataset.id); if (!s) return;
+    Promise.resolve(copyText(s.value)).then(function () { s.usedAt = Date.now(); save(); toast('Copied: ' + s.label); }, function () { toast('Copy failed. Open the item and copy by hand.'); });
+  };
+
+  /* ---------- My social media ---------- */
+  var SOCIAL = [['Instagram', 'https://instagram.com/'], ['Telegram', 'https://t.me/'], ['WhatsApp', 'https://wa.me/'], ['Facebook', 'https://facebook.com/'], ['X', 'https://x.com/'], ['LinkedIn', 'https://linkedin.com/in/'], ['YouTube', 'https://youtube.com/@'], ['TikTok', 'https://tiktok.com/@'], ['Threads', 'https://threads.net/@'], ['VK', 'https://vk.com/'], ['Other', '']];
+  function socialUrl(s) {
+    if (s.url) return s.url;
+    var p = SOCIAL.filter(function (x) { return x[0] === s.platform; })[0], h = (s.handle || '').replace(/^@/, '').trim();
+    if (!p || !p[1] || !h) return '';
+    return p[1] + (s.platform === 'WhatsApp' ? h.replace(/\D/g, '') : h);
+  }
+  screens.socials = function () {
+    var html = head('My social media', 'Your own accounts: handles and links in one place.', '<button class="btn ghost" data-act="newSocial">+ Account</button>');
+    if (!db.socials.length) return html + '<div class="empty">Add your Instagram, Telegram, LinkedIn and other accounts. Passwords go to Safe Storage.</div>';
+    return html + '<div class="list">' + sortByOrder(db.socials).map(function (s) {
+      var u = socialUrl(s);
+      return '<div class="bm"><button class="media-body" data-act="editSocial" data-id="' + esc(s.id) + '"><strong>' + esc(s.platform) + (s.handle ? ' · ' + esc(s.handle) : '') + '</strong><span class="muted small">' + esc(s.note || (u ? host(u) : '')) + '</span></button>' +
+        '<button class="tiny-btn" data-act="copySocial" data-id="' + esc(s.id) + '">Copy</button>' + (u ? '<a class="tiny-btn link-tiny" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">Open</a>' : '') + '</div>';
+    }).join('') + '</div>';
+  };
+  function socialForm(s) {
+    itemSheet({ title: s ? 'Edit account' : 'New account', form: 'social', id: s && s.id, del: 'deleteSocial',
+      fields: '<label class="field"><span>Network</span><select name="platform">' + options(SOCIAL.map(function (x) { return x[0]; }), s ? s.platform : 'Instagram') + '</select></label>' +
+        fieldIn('handle', 'Username or phone', s && s.handle, ' autocapitalize="off" placeholder="@alex"') + fieldIn('url', 'Link (optional)', s && s.url, ' inputmode="url" autocapitalize="off" placeholder="Filled in from the username"') + fieldIn('note', 'Note', s && s.note, ' placeholder="Personal, business, Betterplace…"') });
+  }
+  actions.newSocial = function () { socialForm(null); };
+  actions.editSocial = function (el) { var s = byId(db.socials, el.dataset.id); if (s) socialForm(s); };
+  submitters.social = function (form) {
+    var handle = val(form, 'handle'), url = val(form, 'url'); if (!handle && !url) { $('#itemErr').textContent = 'Add a username or a link.'; return; }
+    var s = form.dataset.id ? byId(db.socials, form.dataset.id) : { id: 'so_' + uid(), order: nextOrder(db.socials) };
+    Object.assign(s, { platform: val(form, 'platform'), handle: handle, url: url ? normUrl(url) : '', note: val(form, 'note') });
+    if (!form.dataset.id) db.socials.push(s);
+    save(); closeSheet(); render();
+  };
+  actions.deleteSocial = function (el) { removeById('socials', el.dataset.id); };
+  actions.copySocial = function (el) { var s = byId(db.socials, el.dataset.id); if (!s) return; var v = socialUrl(s) || s.handle; Promise.resolve(copyText(v)).then(function () { toast('Copied'); }, function () { toast('Copy failed'); }); };
+
+  /* ---------- Feature requests for Focus itself ---------- */
+  screens.features = function () {
+    var open = db.features.filter(function (f) { return !f.done; }).sort(function (a, b) { return a.createdAt - b.createdAt; }), done = db.features.filter(function (f) { return f.done; });
+    var html = head('Feature requests', 'Ideas for Focus. Bring them to the next update.');
+    html += '<div class="list">' + open.map(function (f) { return checkRow(false, 'featureToggle', f.id, 'Mark done', '<button class="task-body" data-act="editFeature" data-id="' + esc(f.id) + '"><span class="task-title">' + esc(f.text) + '</span><span class="meta"><span>' + esc(fmtDate(ymd(new Date(f.createdAt)), { full: true })) + '</span></span></button>'); }).join('') + '</div>';
+    html += '<form class="mini-add" data-form="feature" novalidate autocomplete="off"><input class="input" id="featAddIn" name="text" placeholder="New idea" aria-label="New idea"><button class="btn" type="submit">Add</button></form>';
+    if (open.length) html += '<button class="btn ghost block" style="margin-top:10px" data-act="copyFeatures">Copy the list for Claude</button>';
+    if (done.length) html += section('Done', done.length) + '<div class="list">' + done.map(function (f) { return checkRow(true, 'featureToggle', f.id, 'Reopen', '<button class="task-body" data-act="editFeature" data-id="' + esc(f.id) + '"><span class="task-title">' + esc(f.text) + '</span></button>'); }).join('') + '</div>';
+    return html;
+  };
+  submitters.feature = function (form) { var t = val(form, 'text'); if (!t) return; db.features.push({ id: 'fq_' + uid(), text: t, done: false, createdAt: Date.now() }); save(); render(); var i = $('#featAddIn'); if (i) i.focus(); };
+  actions.featureToggle = function (el) { var f = byId(db.features, el.dataset.id); if (f) { f.done = !f.done; save(); render(); } };
+  actions.editFeature = function (el) { var f = byId(db.features, el.dataset.id); if (f) itemSheet({ title: 'Edit idea', form: 'featureEdit', id: f.id, del: 'deleteFeature', fields: '<label class="field"><span>Idea</span><textarea name="text" rows="4" required>' + esc(f.text) + '</textarea></label>' }); };
+  submitters.featureEdit = function (form) { var f = byId(db.features, form.dataset.id), t = form.elements.text.value.trim(); if (!f || !t) return; f.text = t; save(); closeSheet(); render(); };
+  actions.deleteFeature = function (el) { removeById('features', el.dataset.id); };
+  actions.copyFeatures = function () {
+    var txt = 'Focus feature requests:\n' + db.features.filter(function (f) { return !f.done; }).map(function (f, i) { return (i + 1) + '. ' + f.text; }).join('\n');
+    Promise.resolve(copyText(txt)).then(function () { toast('Copied. Paste it into the chat.'); }, function () { toast('Copy failed'); });
+  };
+
+  /* ---------- Watch · Read · Listen: just a title and an optional link ---------- */
+  function guessMediaType(link, fallback) {
+    var h = link ? host(link) : '';
+    if (/youtube|youtu\.be/.test(h)) return 'YouTube';
+    if (/spotify|music\.apple|music\.yandex|soundcloud/.test(h)) return /podcast|episode|show/.test(link) ? 'Podcast' : 'Music';
+    if (/kinopoisk|imdb|netflix|letterboxd/.test(h)) return 'Movie';
+    if (/litres|goodreads|amazon\.|books\.google/.test(h)) return 'Book';
+    return fallback || 'Movie';
+  }
+  var _media7 = screens.media;
+  screens.media = function () {
+    var html = _media7();
+    var add = '<form class="mini-add media-add" data-form="mediaQuick" novalidate autocomplete="off"><input class="input" name="title" placeholder="Title or paste a link" aria-label="Title"><input class="input" name="link" placeholder="Link (optional)" inputmode="url" autocapitalize="off" aria-label="Link"><button class="btn" type="submit">Add</button></form>';
+    return html.replace('<div class="seg"', add + '<div class="seg"');
+  };
+  submitters.mediaQuick = function (form) {
+    var title = val(form, 'title'), link = val(form, 'link');
+    if (/^https?:\/\/\S+$/i.test(title) && !link) { link = title; title = ''; }
+    if (!title && !link) return;
+    link = link ? normUrl(link) : '';
+    if (!title) title = host(link);
+    db.media.push({ id: 'md_' + uid(), createdAt: Date.now(), title: title, type: guessMediaType(link, ui.mediaType), status: 'To do', link: link, by: '', note: '' });
+    ui.mediaStatus = 'To do'; save(); render(); toast('Added');
+    var f = $('#screen form[data-form=mediaQuick] input'); if (f) f.focus();
+  };
+  /* The edit form no longer asks for an author. */
+  var _editMedia7 = actions.editMedia;
+  actions.editMedia = function (el) { _editMedia7(el); var by = $('#sheet input[name=by]'); if (by && !by.value) by.closest('.field').remove(); };
+  var _newMedia7 = actions.newMedia;
+  actions.newMedia = function () { _newMedia7(); var by = $('#sheet input[name=by]'); if (by) by.closest('.field').remove(); };
+
+  /* ---------- Calculator ---------- */
+  function calcEval(s) {
+    var toks = String(s).replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/,/g, '.').match(/\d*\.?\d+(?:e[+-]?\d+)?|[-+*/%()]/gi);
+    if (!toks) return NaN;
+    var i = 0;
+    function peek() { return toks[i]; }
+    function num() {
+      var t = toks[i++];
+      if (t === '-') return -num(); if (t === '+') return num();
+      if (t === '(') { var v = add(); if (toks[i] === ')') i++; return v; }
+      var n = parseFloat(t); if (isNaN(n)) throw new Error('bad');
+      if (peek() === '%') { i++; n = n / 100; }
+      return n;
+    }
+    function mul() { var v = num(); while (peek() === '*' || peek() === '/') { var o = toks[i++], r = num(); v = o === '*' ? v * r : v / r; } return v; }
+    function add() { var v = mul(); while (peek() === '+' || peek() === '-') { var o = toks[i++], r = mul(); v = o === '+' ? v + r : v - r; } return v; }
+    try { var out = add(); return i === toks.length ? out : NaN; } catch (e) { return NaN; }
+  }
+  function calcFmt(n) { if (!isFinite(n)) return 'Error'; var r = Math.round(n * 1e10) / 1e10; return Math.abs(r) >= 1e15 ? r.toExponential(6) : r.toLocaleString('en-US', { maximumFractionDigits: 10 }); }
+  ui.calc = '';
+  actions.openCalc = function () {
+    var keys = ['C', '⌫', '%', '÷', '7', '8', '9', '×', '4', '5', '6', '−', '1', '2', '3', '+', '(', '0', '.', '='];
+    openSheet('Calculator', '<div class="calc"><div class="calc-in" id="calcIn" aria-live="polite">' + esc(ui.calc || '0') + '</div><div class="calc-out muted" id="calcOut"></div>' +
+      '<div class="calc-keys">' + keys.map(function (k) { return '<button type="button" class="calc-key' + (/[÷×−+=]/.test(k) ? ' op' : '') + (k === '=' ? ' eq' : '') + '" data-calc="' + k + '">' + k + '</button>'; }).join('') + '</div>' +
+      '<button type="button" class="btn ghost block" style="margin-top:10px" data-act="calcCopy">Copy result</button></div>');
+    calcShow();
+  };
+  function calcShow() {
+    var a = $('#calcIn'), b = $('#calcOut'); if (!a) return;
+    a.textContent = ui.calc || '0';
+    var v = calcEval(ui.calc); b.textContent = ui.calc && /[-+×÷*/%−]/.test(ui.calc.slice(1)) && isFinite(v) ? '= ' + calcFmt(v) : '';
+  }
+  function calcKey(k) {
+    if (k === 'C') ui.calc = '';
+    else if (k === '⌫') ui.calc = ui.calc.slice(0, -1);
+    else if (k === '=') { var v = calcEval(ui.calc); ui.calc = isFinite(v) ? String(Math.round(v * 1e10) / 1e10) : ui.calc; }
+    else if (k === '(') ui.calc += /[\d.)]$/.test(ui.calc) ? ')' : '(';
+    else ui.calc += k;
+    calcShow();
+  }
+  document.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-calc]'); if (b) { e.preventDefault(); calcKey(b.dataset.calc); } });
+  document.addEventListener('keydown', function (e) {
+    if (!$('#calcIn') || e.target.matches('input, textarea')) return;
+    var map = { '*': '×', '/': '÷', '-': '−', Enter: '=', Backspace: '⌫', Escape: null };
+    var k = e.key in map ? map[e.key] : e.key; if (k === null) return;
+    if (/^[\d.+%()×÷−=⌫]$/.test(k) || k === '⌫') { e.preventDefault(); calcKey(k === ')' ? '(' : k); }
+  });
+  actions.calcCopy = function () { var v = calcEval(ui.calc); Promise.resolve(copyText(isFinite(v) ? String(Math.round(v * 1e10) / 1e10) : ui.calc)).then(function () { toast('Copied'); }); };
+
+  /* ---------- Readme mindset, balance hidden by default ---------- */
+  actions.editMindset = function () {
+    openSheet('Readme mindset', '<form data-form="mindset" novalidate><label class="field"><span>Principles to read every day</span><textarea name="text" rows="10" placeholder="I decide what matters today.&#10;Health first.&#10;One thing at a time.">' + esc(db.mindset) + '</textarea></label><div class="actions"><button class="btn block" type="submit">Save</button></div></form>');
+  };
+  submitters.mindset = function (form) { db.mindset = form.elements.text.value.trim(); save(); closeSheet(); render(); };
+  /* ---------- pull down to refresh ---------- */
+  (function () {
+    var y0 = null, pulling = false, ind = null, dist = 0;
+    function atTop() { return (window.scrollY || document.documentElement.scrollTop || 0) <= 0 && (($('#screen') || {}).scrollTop || 0) <= 0; }
+    function blocked(e) { return sheetOpen() || $('#drawer').classList.contains('on') || document.documentElement.classList.contains('locked') || (e.target.closest && e.target.closest('input, textarea, select, [data-drag], .sheet')); }
+    document.addEventListener('touchstart', function (e) { if (e.touches.length !== 1 || blocked(e) || !atTop()) { y0 = null; return; } y0 = e.touches[0].clientY; dist = 0; }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (y0 == null) return; dist = e.touches[0].clientY - y0;
+      if (dist <= 0) { if (ind) ind.style.transform = 'translate(-50%, -60px)'; pulling = false; return; }
+      if (!ind) { ind = document.createElement('div'); ind.className = 'ptr'; ind.setAttribute('aria-hidden', 'true'); ind.textContent = '↻'; document.body.appendChild(ind); }
+      pulling = true; var p = Math.min(dist, 110);
+      ind.style.transform = 'translate(-50%, ' + (p * 0.7 - 40) + 'px) rotate(' + (p * 3) + 'deg)'; ind.classList.toggle('ready', p > 80);
+    }, { passive: true });
+    document.addEventListener('touchend', function () {
+      if (y0 == null) return; y0 = null; if (!pulling || !ind) return; pulling = false;
+      var el = ind;
+      if (dist > 80) {
+        el.classList.add('spin'); el.style.transform = 'translate(-50%, 20px)';
+        Promise.all([refreshMarket(true).catch(function () { }), refreshWeather(true).catch(function () { }), Cloud.signedIn() ? Cloud.sync().catch(function () { }) : null])
+          .then(function () { render(); toast(Cloud.signedIn() ? 'Refreshed and synced' : 'Refreshed'); })
+          .then(function () { el.style.transform = 'translate(-50%, -60px)'; setTimeout(function () { el.classList.remove('spin', 'ready'); }, 250); });
+      } else el.style.transform = 'translate(-50%, -60px)';
+    });
+  })();
+
+
+  /* ---------- where the new sections live in the menu ---------- */
+  Object.assign(ROUTES, {
+    visited: { title: 'Places visited', icon: 'visited' }, inboxes: { title: 'Message inboxes', icon: 'inboxes' },
+    snippets: { title: 'Copy-paste data', icon: 'snippets' }, shopping: { title: 'Shopping lists', icon: 'shop' },
+    socials: { title: 'My social media', icon: 'socials' }, features: { title: 'Feature requests', icon: 'features' }
+  });
+  function addToGroup(name, keys, after) {
+    var g = DRAWER_GROUPS.filter(function (x) { return x[0] === name; })[0]; if (!g) return;
+    var at = after ? g[1].indexOf(after) : -1;
+    if (at < 0) Array.prototype.push.apply(g[1], keys); else Array.prototype.splice.apply(g[1], [at + 1, 0].concat(keys));
+  }
+  addToGroup('Life', ['visited']);
+  addToGroup('Knowledge', ['inboxes', 'socials']);
+  addToGroup('Vault', ['snippets']);
+  addToGroup('Money', ['shopping']);
+  addToGroup('App', ['features'], 'structure');
+  Object.assign(DRAWER_SUB, { visited: 'Countries, US parks, top places', inboxes: 'Where to check messages', snippets: 'Text to copy in one tap', shopping: 'Shopping, groceries, packing', socials: 'Your accounts and links', features: 'Ideas for the next update' });
+
+  /* ---------- Home: EUR and AUD, S&P 500 and Dow, calculator; Readme mindset ---------- */
+  function refreshFx2(force) {
+    var c = readCache('focus.fx2');
+    if (!force && c && Date.now() - c.t < 30 * 60000) return Promise.resolve(c);
+    return fetchJson('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd,eur,aud&include_24hr_change=true').then(function (j) {
+      var T = j.tether || {}, tu = T.usd || 1;
+      var m = { t: Date.now(), eurUsd: T.eur ? tu / T.eur : null, eurChg: T.eur_24h_change == null ? null : -T.eur_24h_change, audUsd: T.aud ? tu / T.aud : null, audChg: T.aud_24h_change == null ? null : -T.aud_24h_change };
+      writeCache('focus.fx2', m); return m;
+    });
+  }
+  var _widgetsHtml110 = widgetsHtml;
+  widgetsHtml = function () {
+    var html = _widgetsHtml110(), W = db.settings.widgets, m = readCache('focus.fx2'), out = '';
+    function tileW(lbl, id, v, sub) { return '<div class="widget"><span class="wl">' + lbl + '</span><span class="wv" id="' + id + '">' + v + '</span>' + sub + '</div>'; }
+    function link(lbl, v, sub, href) { return '<a class="widget" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer"><span class="wl">' + lbl + '</span><span class="wv">' + v + '</span><span class="wchg">' + sub + '</span></a>'; }
+    if (W.fx2) {
+      out += tileW('EUR → USD', 'wEur', m && m.eurUsd ? esc(m.eurUsd.toFixed(3)) : '…', '<span id="wEurC">' + chg(m && m.eurChg) + '</span>');
+      out += tileW('AUD → USD', 'wAud', m && m.audUsd ? esc(m.audUsd.toFixed(3)) : '…', '<span id="wAudC">' + chg(m && m.audChg) + '</span>');
+    }
+    if (W.indices) { out += link('S&amp;P 500', 'SPX ↗', 'Google Finance', 'https://www.google.com/finance/quote/.INX:INDEXSP'); out += link('Dow Jones', 'DJI ↗', 'Google Finance', 'https://www.google.com/finance/quote/.DJI:INDEXDJX'); }
+    if (W.calc) out += '<button class="widget" data-act="openCalc"><span class="wl">Calculator</span><span class="wv">±×÷</span><span class="wchg">Tap to open</span></button>';
+    if (!out) return html;
+    if (!html) return '<div class="widgets">' + out + '</div>';
+    var k = html.lastIndexOf('</div>');
+    return html.slice(0, k) + out + html.slice(k);
+  };
+  var _updateWidgets110 = updateWidgets;
+  updateWidgets = function () {
+    _updateWidgets110();
+    if (ui.route.name !== 'home' || !db.settings.widgets.fx2) return;
+    refreshFx2().then(function (m) {
+      function set(id, h) { var el = $('#' + id); if (el) el.innerHTML = h; }
+      set('wEur', m.eurUsd ? esc(m.eurUsd.toFixed(3)) : '—'); set('wEurC', chg(m.eurChg));
+      set('wAud', m.audUsd ? esc(m.audUsd.toFixed(3)) : '—'); set('wAudC', chg(m.audChg));
+    }).catch(function () { /* offline: keep what is shown */ });
+  };
+  var _home110x = screens.home;
+  screens.home = function () {
+    var h = _home110x();
+    var block = section('Readme mindset', null, '<button class="link-btn" data-act="editMindset">' + (db.mindset ? 'Edit' : '+ Write') + '</button>') +
+      (db.mindset ? '<button class="card pad mindset" data-act="editMindset">' + esc(db.mindset) + '</button>' : '<button class="empty focus-empty" data-act="editMindset">Write the principles you want to read every day.</button>');
+    var k = h.indexOf('<div class="section"><h2>My priorities');
+    return k >= 0 ? h.slice(0, k) + block + h.slice(k) : h + block;
+  };
+
+  /* ---------- switches for the new Home widgets, on the layout screen ---------- */
+  var _structure110x = screens.structure;
+  screens.structure = function () {
+    var W = db.settings.widgets;
+    function sw(k, l) { return '<label class="set-row"><span class="set-l">' + l + '</span><input type="checkbox" data-chg="widget" data-k="' + k + '"' + (W[k] ? ' checked' : '') + '></label>'; }
+    return _structure110x() + section('Home widgets') + '<div class="card set-card">' + sw('fx2', 'EUR and AUD rates') + sw('indices', 'S&amp;P 500 and Dow Jones links') + sw('calc', 'Calculator') + '</div>';
+  };
+  actions.widget = function (el) { db.settings.widgets[el.dataset.k] = !!el.checked; save(); toast('Saved'); };
+
+  var _boot110x = boot;
+  boot = function () { _boot110x(); window.FocusDebug.calcEval = calcEval; };
 
   /* ================= boot ================= */
   function boot() {

@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal', 'Regular routines', 'AI assistant', 'All tasks'];
+  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important & Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal', 'Regular routines', 'AI assistant', 'All tasks'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -90,6 +90,7 @@ test('boots with no errors and shows Home', async ({ page }) => {
 });
 
 test('hamburger reaches all 15 screens and Back returns to the previous one', async ({ page }) => {
+  test.setTimeout(120000); // visits every screen in turn
   const errors = await open(page);
   for (const title of SCREENS) {
     await viaMenu(page, title);
@@ -105,6 +106,7 @@ test('hamburger reaches all 15 screens and Back returns to the previous one', as
 });
 
 test('every button on every screen is wired to a real action', async ({ page }) => {
+  test.setTimeout(120000); // visits every screen in turn
   await open(page);
   for (const title of SCREENS) {
     await viaMenu(page, title);
@@ -302,10 +304,11 @@ test('drag a Kanban card into another column; status persists', async ({ page })
   await p.move(vw - 8, box.y + 40);            // hold at the right edge: the board scrolls itself
   // the board shifts one column; In Progress is now in the middle of the screen
   await expect.poll(() => page.evaluate(() => document.getElementById('board').scrollLeft), { timeout: 5000, intervals: [50] }).toBeGreaterThan(vw > 600 ? -1 : 200);
-  await p.move(vw / 2, box.y + 40, 6);
+  const col = await page.locator('#board .column', { has: page.locator('[data-sort-list=doing]') }).boundingBox();
+  await p.move(Math.min(Math.max(col.x + col.width / 2, 20), vw - 60), box.y + 40, 6);
   await expect.poll(() => page.evaluate((i) => document.querySelector('[data-sort-item="' + i + '"]').parentElement.dataset.sortList, id)).toBe('doing');
   await p.up();
-  await expect(page.locator('#toast')).toContainText('Moved to In Progress');
+  await expect(page.locator('#toast')).toContainText('Moved to In progress');
   const data = await stored(page);
   expect(data.tasks.find((t) => t.title === 'Approve renovation budget').status).toBe('doing');
   await page.reload();
@@ -316,9 +319,9 @@ test('drag a Kanban card into another column; status persists', async ({ page })
 test('Kanban fallback: changing status in the task sheet moves the card', async ({ page }) => {
   await open(page, '#/kanban');
   await press(page, page.locator('[data-sort-list=todo] .task-body', { hasText: 'Draft launch announcement' }));
-  await page.locator('#sheet select[name=status]').selectOption('waiting');
+  await page.locator('#sheet select[name=status]').selectOption('paused');
   await press(page, page.locator('#sheet button[type=submit]'));
-  await expect(page.locator('[data-sort-list=waiting] .kcard', { hasText: 'Draft launch announcement' })).toHaveCount(1);
+  await expect(page.locator('[data-sort-list=paused] .kcard', { hasText: 'Draft launch announcement' })).toHaveCount(1);
 });
 
 test('areas are exactly Personal and Business; a project belongs to one area', async ({ page }) => {
@@ -380,10 +383,10 @@ test('Home: 4 city clocks, USDT/RUB, BTC, weather and traffic where you are, qui
   await expect(page.locator('#wTemp').locator('xpath=..')).toContainText('Bali');
   await expect(page.locator('a.widget[href*="google.com/maps/@-8.6500,115.2200"]')).toHaveCount(1);
   await expect(page.locator('a.widget[href*="google.com/maps"]')).toContainText('Bali');
-  await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Follow-up', 'Delegated', 'Someday', 'Done', 'Paused']);
+  await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
   await expect(page.locator('#screen')).not.toContainText('Waiting on others');
   await press(page, page.locator('.tile', { hasText: 'Most important' }));
-  await expect(h1(page)).toHaveText('Most important');
+  await expect(h1(page)).toHaveText('Most important & Urgent');
   await expect(page.locator('#screen .task-title')).toHaveText(['Review quarterly growth plan']);
 });
 
@@ -855,7 +858,7 @@ test('Quick add follows the screen: Today, Most important, Follow-up, a project'
   await open(page, '#/today');
   await page.locator('#screen .quick-add .qa-in').fill('Today item');
   await page.locator('#screen .quick-add .qa-in').press('Enter');
-  await viaMenu(page, 'Most important');
+  await viaMenu(page, 'Most important & Urgent');
   await page.locator('#screen .quick-add .qa-in').fill('Urgent item');
   await page.locator('#screen .quick-add .qa-in').press('Enter');
   await viaMenu(page, 'Follow-up');
@@ -871,7 +874,8 @@ test('Quick add follows the screen: Today, Most important, Follow-up, a project'
   const by = (n) => d.tasks.find((x) => x.title === n);
   expect(by('Today item').date).toBe(t);
   expect(by('Urgent item').priority).toBe('urgent');
-  expect(by('Waiting item').status).toBe('waiting');
+  expect(by('Waiting item').status).toBe('todo');
+  expect(by('Waiting item').tags).toContain('followup');
   expect(by('Project item').project).toBe('p_home');
 });
 
@@ -1291,7 +1295,7 @@ test('AI assistant: uses your key, sends priorities and tasks, can create a task
 test('All tasks: count in the menu and on Home; Safe opens from anywhere on its block; Safe form is full height', async ({ page }) => {
   await open(page);
   const n = await page.evaluate(() => JSON.parse(localStorage.getItem('focus.data.v1')).tasks.filter((t) => !t.done).length);
-  await expect(page.locator('.all-tasks-link b')).toHaveText(String(n));
+  await expect(page.locator('.tile[data-tile=all] .n')).toHaveText(String(n));
   await press(page, page.locator('#menuBtn'));
   await expect(page.locator('#drawer .nav-link[data-go=alltasks] .badge')).toHaveText(String(n));
   await press(page, page.locator('#drawer .nav-link[data-go=alltasks]'));

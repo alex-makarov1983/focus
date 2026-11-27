@@ -1,0 +1,6 @@
+# Only what the Supabase CLI needs to deploy the Focus edge function.
+project_id = "focus"
+
+[functions.focus-mcp]
+# Claude connects with a secret inside the URL, not with a Supabase login token.
+verify_jwt = false

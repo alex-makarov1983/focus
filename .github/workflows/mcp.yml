@@ -1,0 +1,92 @@
+name: Claude connector (MCP)
+
+# Tests the Focus MCP server on a throwaway database, deploys it as a Supabase
+# edge function, then checks the live address. Logs are public: nothing private is printed.
+# Needs repository secrets: SUPABASE_ACCESS_TOKEN (already there), FOCUS_MCP_SECRET,
+# and optionally FOCUS_USER_EMAIL.
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**', 'supabase/config.toml', '.github/workflows/mcp.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REF: euwrwoxfgeylgyarrzea
+
+jobs:
+  test:
+    name: Test the MCP server
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: pw }
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
+      - name: Test database
+        env: { PGPASSWORD: pw }
+        run: |
+          psql -h localhost -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+          create schema auth;
+          create table auth.users (id uuid primary key, email text);
+          create table public.focus_state (user_id uuid primary key references auth.users(id) on delete cascade, data jsonb not null default '{}'::jsonb, vault jsonb, version bigint not null default 0, device text, updated_at timestamptz not null default now());
+          SQL
+      - name: Tests
+        working-directory: supabase/functions/focus-mcp
+        env: { TEST_DB_URL: 'postgres://postgres:pw@localhost:5432/postgres' }
+        run: deno test -A --config deno.json
+
+  deploy:
+    name: Deploy to Supabase and check
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - name: Check secrets
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          MCP: ${{ secrets.FOCUS_MCP_SECRET }}
+        run: |
+          [ -n "$TOKEN" ] || { echo "::error::Add the SUPABASE_ACCESS_TOKEN secret"; exit 1; }
+          [ ${#MCP} -ge 32 ] || { echo "::error::Add the FOCUS_MCP_SECRET secret (at least 32 characters)"; exit 1; }
+      - name: Set function secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          MCP: ${{ secrets.FOCUS_MCP_SECRET }}
+          EMAIL: ${{ secrets.FOCUS_USER_EMAIL }}
+        run: |
+          args=("FOCUS_MCP_SECRET=$MCP" "FOCUS_TZ=Asia/Makassar")
+          [ -n "$EMAIL" ] && args+=("FOCUS_USER_EMAIL=$EMAIL")
+          supabase secrets set --project-ref "$REF" "${args[@]}" > /dev/null
+          echo "Secrets set: ${#args[@]}"
+      - name: Deploy focus-mcp
+        env: { SUPABASE_ACCESS_TOKEN: '${{ secrets.SUPABASE_ACCESS_TOKEN }}' }
+        run: supabase functions deploy focus-mcp --project-ref "$REF" --no-verify-jwt --use-api
+      - name: Check the live connector
+        env: { MCP: '${{ secrets.FOCUS_MCP_SECRET }}' }
+        run: |
+          BASE="https://$REF.supabase.co/functions/v1/focus-mcp"
+          H=(-H 'content-type: application/json' -H 'accept: application/json, text/event-stream')
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /tmp/init.json -w '%{http_code}' "${H[@]}" "$BASE/$MCP" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}')
+            [ "$code" = 200 ] && break; echo "Waiting for the function ($code)…"; sleep 10
+          done
+          jq -e '.result.serverInfo.name == "focus"' /tmp/init.json > /dev/null || { echo "::error::initialize failed (HTTP $code)"; exit 1; }
+          echo "initialize: OK"
+          n=$(curl -s "${H[@]}" "$BASE/$MCP" -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq '.result.tools | length')
+          echo "tools: $n"; [ "$n" -ge 10 ] || exit 1
+          curl -s "${H[@]}" "$BASE/$MCP" -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"focus_overview","arguments":{}}}' > /tmp/o.json
+          if jq -e '.result.isError == false and (.result.content[0].text | startswith("Today is"))' /tmp/o.json > /dev/null; then echo "reads your Focus data: OK"
+          else echo "::error::The function runs but cannot read Focus data: $(jq -r '.result.content[0].text' /tmp/o.json | head -c 200)"; exit 1; fi
+          bad=$(curl -s -o /dev/null -w '%{http_code}' "${H[@]}" "$BASE/not-the-secret-000000000000000000000" -d '{}')
+          echo "wrong key → HTTP $bad"; [ "$bad" = 404 ] || exit 1
+          echo "::notice title=Claude connector::Ready. Add it in Claude → Connectors → Add custom connector."
