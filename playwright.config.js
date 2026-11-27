@@ -22,9 +22,13 @@ module.exports = defineConfig({
   },
   projects: [
     // Closest available match to iPhone Safari: real WebKit engine with iPhone 13 viewport, touch and user agent.
-    { name: 'iphone-webkit', use: { ...devices['iPhone 13'] } },
+    { name: 'iphone-webkit', testIgnore: /wide\.spec/, use: { ...devices['iPhone 13'] } },
     // Same iPhone profile on Chromium, used for true touch-event drag tests via CDP.
-    { name: 'iphone-chromium', use: { ...devices['iPhone 13'], browserName: 'chromium' } },
-    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } }
+    { name: 'iphone-chromium', testIgnore: /wide\.spec/, use: { ...devices['iPhone 13'], browserName: 'chromium' } },
+    // Narrow desktop window: the phone layout in a browser.
+    { name: 'desktop-chromium', testIgnore: /wide\.spec/, use: { ...devices['Desktop Chrome'], viewport: { width: 820, height: 1000 } } },
+    // Wide layouts: iPad in landscape (WebKit) and a desktop browser window.
+    { name: 'ipad-webkit', testMatch: /wide\.spec/, use: { ...devices['iPad Pro 11 landscape'] } },
+    { name: 'desktop-wide', testMatch: /wide\.spec/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }
   ]
 });

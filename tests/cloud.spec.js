@@ -113,7 +113,7 @@ test('cloud: simultaneous edits on two devices are merged, nothing is lost', asy
   await A.context.close(); await B.context.close();
 });
 
-test('cloud: Safe travels only as ciphertext and opens with the same PIN on another device', async ({ browser }) => {
+test('cloud: Safe syncs only with a Safe password; the PIN never leaves the device', async ({ browser }) => {
   const sb = fakeSupabase();
   const A = await device(browser, sb); await signIn(A.page, 'up');
   await A.page.evaluate(() => { location.hash = '#/safe'; });
@@ -125,14 +125,41 @@ test('cloud: Safe travels only as ciphertext and opens with the same PIN on anot
   await A.page.locator('#sheet button[type=submit]').click();
   await expect(A.page.locator('[data-safe]', { hasText: 'Bank login' })).toHaveCount(1);
   await syncNow(A.page);
+  // Without a Safe password nothing of the Safe goes to the cloud.
+  expect(sb.rows['u-0'].vault == null).toBe(true);
+  await expect(A.page.locator('.safe-pass-note')).toContainText('isn’t syncing');
+  await A.page.locator('.safe-pass-note [data-act=safePassSet]').click();
+  await A.page.locator('#sheet input[name=pw]').fill('short');
+  await A.page.locator('#sheet input[name=pw2]').fill('short');
+  await A.page.locator('#sheet button[type=submit]').click();
+  await expect(A.page.locator('#spErr')).toContainText('10 characters');
+  await A.page.locator('#sheet input[name=pw]').fill('river candle orbit maple');
+  await A.page.locator('#sheet input[name=pw2]').fill('river candle orbit maple');
+  await A.page.locator('#sheet button[type=submit]').click();
+  await expect(A.page.locator('.safe-pass-note')).toHaveCount(0);
+  await syncNow(A.page);
   const stored = JSON.stringify(sb.rows['u-0']);
   expect(stored).not.toContain('cloud-secret-77');
   expect(stored).not.toContain('Bank login');
+  expect(stored).not.toContain('wrapPin');
+  expect(sb.rows['u-0'].vault.pass.iter).toBe(600000);
   const B = await device(browser, sb); await signIn(B.page);
   await B.page.evaluate(() => { location.hash = '#/safe'; });
-  await B.page.locator('input[name=pin]').fill('4821');
-  await B.page.locator('form[data-form=safeUnlock] button[type=submit]').click();
+  await expect(B.page.locator('form[data-form=safeOpenPass]')).toBeVisible();
+  await B.page.locator('input[name=pw]').fill('wrong password here');
+  await B.page.locator('input[name=pin]').fill('1357'); await B.page.locator('input[name=pin2]').fill('1357');
+  await B.page.locator('form[data-form=safeOpenPass] button[type=submit]').click();
+  await expect(B.page.locator('#sopErr')).toContainText('Wrong Safe password');
+  await B.page.locator('input[name=pw]').fill('river candle orbit maple');
+  await B.page.locator('form[data-form=safeOpenPass] button[type=submit]').click();
   await expect(B.page.locator('[data-safe]', { hasText: 'Bank login' })).toHaveCount(1);
+  // B now has its own PIN; an edit on B reaches A, whose PIN still works.
+  await B.page.locator('[data-act=newSafe]').click();
+  await B.page.locator('#sheet input[name=title]').fill('Passport');
+  await B.page.locator('#sheet button[type=submit]').click();
+  await syncNow(B.page);
+  await syncNow(A.page);
+  await expect(A.page.locator('[data-safe]', { hasText: 'Passport' })).toHaveCount(1);
   await A.context.close(); await B.context.close();
 });
 
