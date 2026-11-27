@@ -7082,7 +7082,7 @@
   boot = function () { _boot110x(); window.FocusDebug.calcEval = calcEval; };
 
   /* ================= v1.11: every task field has a list you can edit; Type, Area, Location, Links, AI chat; longer description; “What Focus can do” ================= */
-  APP_VERSION = '1.11.0';
+  APP_VERSION = '1.11.0'; /* 1.12 is set below */
 
   var PRIORITY_DEFAULTS = [{ id: 'urgent', name: 'Urgent', color: 'red', builtin: true }, { id: 'high', name: 'High', color: 'orange', builtin: true }, { id: 'medium', name: 'Medium', color: 'blue', builtin: true }, { id: 'low', name: 'Low', color: 'gray', builtin: true }];
   var SPHERE_DEFAULTS = ['Health', 'Security', 'Wealth', 'Family', 'Friends & Relatives', 'Household & Assets management', 'Travel, Leisure & Hobbies', 'Routines', 'Self improvement', 'Recognition', 'Self-realization', 'Betterment'];
@@ -7322,6 +7322,109 @@
     return i >= 0 ? h.slice(0, i) + link + h.slice(i) : h + link;
   };
   if (db) syncMeta(db);
+
+  /* ================= v1.12: Home sections fold and move; Today 5, Most important 10 more, no repeats ================= */
+  APP_VERSION = '1.12.0';
+  var HOME_FOCUS_N = 5, HOME_IMPORTANT_N = 10;
+  ICON.fold = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+
+  /* Today on Home: the first five tasks of Today */
+  focusCard = function () {
+    var all = sel.today(), top = all.slice(0, HOME_FOCUS_N);
+    var html = '<section class="focus-card" aria-label="Today’s focus"><div class="fc-head"><h2>Today’s focus</h2><button class="fc-link" data-go="today">' + (all.length > HOME_FOCUS_N ? 'All ' + all.length : 'Today') + '</button></div>';
+    html += top.length ? '<div class="fc-list" data-sort-list="focus" data-sort-group="tasks">' + top.map(function (t) {
+      return '<div class="fc-row" data-sort-item="' + esc(t.id) + '"><button class="check p-' + esc(t.priority) + '" role="checkbox" aria-checked="false" data-act="toggleTask" data-id="' + esc(t.id) + '" aria-label="Complete ' + esc(t.title) + '"><span class="box">' + ICON.tick + '</span></button>' +
+        '<button class="fc-title" data-act="editTask" data-id="' + esc(t.id) + '">' + esc(t.title) + '</button><button class="grip" data-drag aria-label="Drag to reorder ' + esc(t.title) + '">' + ICON.grip + '</button></div>';
+    }).join('') + '</div>' : '<p class="fc-empty">Nothing planned for today yet.</p>';
+    if (top.length < HOME_FOCUS_N) html += quickAddHtml({ list: 'anytime', date: today(), where: 'Today' }, 'focus');
+    else html += '<p class="fc-hint">The first five tasks in Today. Drag ⋮⋮ to change what comes first.</p>';
+    return html + '</section>';
+  };
+  function homeFocusIds() { return sel.today().slice(0, HOME_FOCUS_N).map(function (t) { return t.id; }); }
+
+  /* ---------- Home sections ---------- */
+  var HOME_KEYS = { 'Most important': 'important', 'Today’s schedule': 'schedule', 'Time left': 'timeleft', 'Money': 'money', 'Shortcuts': 'shortcuts', 'Readme mindset': 'mindset', 'My priorities': 'priorities', 'Habits today': 'habits', 'How was today?': 'journal', 'Today’s deadlines': 'deadlines', 'This week’s deadlines': 'deadlines' };
+  var STANDALONE = [['home-search', 'search', 'Search'], ['clocks', 'clocks', 'World clocks'], ['widgets', 'widgets', 'Weather & rates'], ['ai-bar2', 'ai', 'Assistant'], ['ai-bar', 'ai', 'Assistant'], ['focus-card', 'focus', 'Today'], ['list-tiles', 'tiles', 'Lists'], ['safe-quick', 'safe', 'Safe']];
+  function h2Title(sec) { var h = sec.querySelector('h2'); return h && h.firstChild ? String(h.firstChild.textContent).trim() : ''; }
+  function homeBlocks(root) {
+    var blocks = [], cur = null;
+    Array.prototype.slice.call(root.children).forEach(function (el) {
+      if (el.classList.contains('page-head')) { blocks.push({ fixed: true, els: [el] }); cur = null; return; }
+      var st = STANDALONE.filter(function (x) { return el.classList.contains(x[0]); })[0];
+      if (el.classList.contains('section')) {
+        var t = h2Title(el);
+        cur = { key: HOME_KEYS[t] || ('s_' + t.toLowerCase().replace(/[^a-z0-9]+/g, '_')), title: t, head: el, els: [el] }; blocks.push(cur); return;
+      }
+      if (st) {
+        if (st[1] === 'ai' && cur && cur.key === 'ai') { cur.els.push(el); return; }
+        cur = { key: st[1], title: st[2], head: el.classList.contains('focus-card') ? el.querySelector('.fc-head') : null, els: [el] }; blocks.push(cur); return;
+      }
+      if (cur) cur.els.push(el); else blocks.push({ fixed: true, els: [el] });
+    });
+    return blocks;
+  }
+  function blockControls(b, folded) {
+    return '<button type="button" class="hb-fold" data-act="homeFold" data-k="' + esc(b.key) + '" aria-expanded="' + !folded + '" aria-label="' + (folded ? 'Show ' : 'Hide ') + esc(b.title) + '">' + ICON.fold + '</button>';
+  }
+  var _home112 = screens.home;
+  screens.home = function () {
+    var html = _home112();
+    var tpl = document.createElement('template'); tpl.innerHTML = html;
+    var root = tpl.content;
+    /* Most important: up to ten urgent tasks that are not already in Today on Home */
+    var focusIds = homeFocusIds(), impAll = sel.urgent(), imp = impAll.filter(function (t) { return focusIds.indexOf(t.id) < 0; });
+    var wrap = document.createElement('div'); wrap.appendChild(root.cloneNode(true));
+    var L = db.settings.layout, folded = L.homeFolded || {}, order = L.homeOrder || [];
+    var blocks = homeBlocks(wrap);
+    blocks.forEach(function (b) {
+      if (b.key !== 'important') return;
+      var sec = b.els[0], c = sec.querySelector('.count'); if (c) c.textContent = imp.length;
+      var right = sec.querySelector('.link-btn'); if (!right && imp.length > HOME_IMPORTANT_N) sec.insertAdjacentHTML('beforeend', '<button class="link-btn" data-go="urgent">All</button>');
+      var t2 = document.createElement('template');
+      t2.innerHTML = taskList(imp.slice(0, HOME_IMPORTANT_N), 'home-top', impAll.length ? 'All most important tasks are in Today above.' : 'Nothing marked most important.', { sortable: false });
+      b.els.slice(1).forEach(function (x) { x.remove(); });
+      b.els = [sec].concat(Array.prototype.slice.call(t2.content.childNodes));
+    });
+    /* order: saved order first, new sections keep their place after the one before them */
+    var movable = blocks.filter(function (b) { return !b.fixed; }), natural = movable.map(function (b) { return b.key; });
+    var final = order.filter(function (k, i, a) { return natural.indexOf(k) >= 0 && a.indexOf(k) === i; });
+    natural.forEach(function (k, i) {
+      if (final.indexOf(k) >= 0) return;
+      var prev = i > 0 ? final.indexOf(natural[i - 1]) : -1;
+      final.splice(prev >= 0 ? prev + 1 : Math.min(i, final.length), 0, k);
+    });
+    var out = '';
+    blocks.filter(function (b) { return b.fixed; }).forEach(function (b) { b.els.forEach(function (e) { out += e.outerHTML || ''; }); });
+    var inner = final.map(function (k) {
+      var b = movable.filter(function (x) { return x.key === k; })[0], f = !!folded[k];
+      var body = '';
+      if (b.head && b.head.classList.contains('section')) {
+        b.head.classList.add('hb-top');
+        b.head.insertAdjacentHTML('afterbegin', blockControls(b, f));
+        b.head.insertAdjacentHTML('beforeend', gripBtn(b.title));
+        body = b.els.map(function (e) { return e.outerHTML || (e.textContent || ''); }).join('');
+      } else if (b.head) {
+        b.els[0].classList.add('hb-top');
+        b.head.insertAdjacentHTML('afterbegin', blockControls(b, f));
+        b.head.insertAdjacentHTML('beforeend', gripBtn(b.title));
+        body = b.els.map(function (e) { return e.outerHTML; }).join('');
+      } else {
+        body = '<div class="hb-head hb-top">' + blockControls(b, f) + '<h3>' + esc(b.title) + '</h3>' + gripBtn(b.title) + '</div>' + b.els.map(function (e) { return e.outerHTML; }).join('');
+      }
+      return '<div class="hblock' + (f ? ' folded' : '') + '" data-sort-item="' + esc(k) + '" data-hb="' + esc(k) + '">' + body + '</div>';
+    }).join('');
+    return out + '<div class="hblocks" data-sort-list="home" data-sort-group="homeBlocks">' + inner + '</div>' +
+      '<p class="muted small hb-hint">Tap ▾ to fold a section, drag ⋮⋮ to move it. <button class="link-btn" data-act="resetHome">Reset Home</button></p>';
+  };
+  SORT_HANDLERS.homeBlocks = function (ids) { db.settings.layout.homeOrder = ids; saved(); };
+  actions.homeFold = function (el) {
+    var L = db.settings.layout, k = el.dataset.k; L.homeFolded = L.homeFolded || {};
+    if (L.homeFolded[k]) delete L.homeFolded[k]; else L.homeFolded[k] = true;
+    var b = el.closest('.hblock'); if (b) b.classList.toggle('folded', !!L.homeFolded[k]);
+    el.setAttribute('aria-expanded', String(!L.homeFolded[k]));
+    save();
+  };
+  actions.resetHome = function () { delete db.settings.layout.homeOrder; delete db.settings.layout.homeFolded; saved(); toast('Home reset'); };
 
   /* ================= boot ================= */
   function boot() {

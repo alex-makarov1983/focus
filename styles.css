@@ -1032,3 +1032,23 @@ textarea.task-desc { min-height: 34vh; line-height: 1.5; }
 .doc li { margin: 3px 0; }
 .doc code { font-size: .92em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; }
 .doc a { color: var(--accent); }
+
+/* ===== v1.12: Home sections fold and move ===== */
+.hblocks { display: flex; flex-direction: column; }
+.hb-fold { width: 30px; height: 30px; display: inline-grid; place-items: center; flex: 0 0 auto; margin-left: -6px; border: 0; background: none; color: var(--muted); border-radius: 8px; cursor: pointer; }
+.hb-fold svg { width: 16px; height: 16px; transform: none !important; transition: transform .15s ease; }
+.hblock.folded .hb-fold svg { transform: rotate(-90deg) !important; }
+@media (prefers-reduced-motion: reduce) { .hb-fold svg { transition: none; } }
+.hblock.folded > :not(.hb-top) { display: none !important; }
+.hblock.folded > .focus-card > :not(.fc-head) { display: none !important; }
+.hblock.folded > .focus-card .fc-head { margin-bottom: 0; }
+.section.hb-top { justify-content: flex-start; gap: 4px; }
+.section.hb-top h2 { flex: 1; min-width: 0; }
+.hb-head { display: flex; align-items: center; gap: 4px; margin: 16px 0 6px; }
+.hb-head h3 { flex: 1; margin: 0; font-size: 12.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.hb-top > .grip, .fc-head > .grip { width: 32px; height: 32px; flex: 0 0 auto; }
+.fc-head .hb-fold { color: inherit; opacity: .75; }
+.hb-hint { text-align: center; margin: 18px 0 6px; }
+.hb-hint .link-btn { margin-left: 6px; }
+.section.hb-top { align-items: center; }
+.fc-head h2 { flex: 1; }
