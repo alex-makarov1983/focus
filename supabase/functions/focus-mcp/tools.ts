@@ -8,10 +8,14 @@ export type Data = Record<string, any>;
 export interface Ctx { today: string; now: number; uid: () => string; notes?: string[] }
 export interface Result { text: string; changed: boolean; isError?: boolean }
 
-const PRIORITIES = ['urgent', 'high', 'medium', 'low'];
 const LIST_DEFAULTS = [{ id: 'inbox', name: 'Inbox' }, { id: 'today', name: 'Today' }, { id: 'urgent', name: 'Most important & Urgent', short: 'Most important' }, { id: 'anytime', name: 'Anytime' }, { id: 'someday', name: 'Someday' }];
-const STATUS_DEFAULTS = [{ id: 'todo', name: 'Not started', color: 'gray' }, { id: 'doing', name: 'In progress', color: 'blue' }, { id: 'done', name: 'Done', color: 'green' }, { id: 'paused', name: 'Paused', color: 'orange' }, { id: 'archived', name: 'Archive', color: 'gray' }];
-const TAG_DEFAULTS = [{ id: 'followup', name: 'Follow-up', color: 'purple' }, { id: 'delegated', name: 'Delegated', color: 'teal' }];
+const STATUS_DEFAULTS = [{ id: 'todo', name: 'Not started', color: 'gray' }, { id: 'doing', name: 'In progress', color: 'blue' }, { id: 'followup', name: 'Follow-up', color: 'purple' }, { id: 'paused', name: 'Paused', color: 'orange' }, { id: 'done', name: 'Done', color: 'green' }, { id: 'archived', name: 'Archive', color: 'gray' }];
+const PURCHASE_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
+const TAG_DEFAULTS = [{ id: 'moscow', name: 'Moscow', color: 'red' }, { id: 'bali', name: 'Bali', color: 'green' }, { id: 'usa', name: 'USA', color: 'blue' }];
+const PRIORITY_DEFAULTS = [{ id: 'urgent', name: 'Urgent' }, { id: 'high', name: 'High' }, { id: 'medium', name: 'Medium' }, { id: 'low', name: 'Low' }];
+const SPHERE_DEFAULTS = ['Health', 'Security', 'Wealth', 'Family', 'Friends & Relatives', 'Household & Assets management', 'Travel, Leisure & Hobbies', 'Routines', 'Self improvement', 'Recognition', 'Self-realization', 'Betterment'];
+const LOCATION_DEFAULTS = ['Online', 'USA', 'Russia', 'Bali'];
+const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 const COLORS = ['gray', 'blue', 'green', 'orange', 'red', 'purple', 'teal', 'pink'];
 const PROJECT_STATUSES = ['active', 'paused', 'completed'];
 const REPEATS = ['', 'daily', 'weekly', 'monthly', 'yearly'];
@@ -53,11 +57,21 @@ export function normalize(d: Data): Data {
   if (!Array.isArray(d.lists) || !d.lists.length) d.lists = seed(LIST_DEFAULTS);
   if (!Array.isArray(d.statuses) || !d.statuses.length) d.statuses = seed(STATUS_DEFAULTS);
   if (!Array.isArray(d.tags)) d.tags = seed(TAG_DEFAULTS);
+  if (!Array.isArray(d.priorities) || !d.priorities.length) d.priorities = seed(PRIORITY_DEFAULTS);
+  if (!Array.isArray(d.spheres)) d.spheres = SPHERE_DEFAULTS.map((n, i) => ({ id: 'sp_' + slug(n), name: n, order: i + 1 }));
+  if (!Array.isArray(d.locations)) d.locations = LOCATION_DEFAULTS.map((n, i) => ({ id: 'lo_' + slug(n), name: n, order: i + 1 }));
+  if (!d.settings || typeof d.settings !== 'object') d.settings = {};
+  if (!Array.isArray(d.settings.assistants)) d.settings.assistants = ['AI assistant', 'Personal assistant', 'Business assistant'];
+  if (!d.statuses.some((x: any) => x.id === 'followup')) d.statuses.push({ id: 'followup', name: 'Follow-up', color: 'purple', builtin: true, order: 2.5 });
+  // Focus 1.10 kept Follow-up and Delegated as tags: they are a status and the "Delegated to" field now.
+  const old = d.tags.filter((g: any) => g.builtin && (g.id === 'followup' || g.id === 'delegated')).map((g: any) => g.id);
   for (const t of d.tasks) {
     if (!Array.isArray(t.tags)) t.tags = [];
-    if (t.status === 'waiting') { t.status = 'todo'; if (byIdIn(d.tags, 'followup') && !t.tags.includes('followup')) t.tags.push('followup'); }
-    if (t.delegatedTo && byIdIn(d.tags, 'delegated') && !t.tags.includes('delegated')) t.tags.push('delegated');
+    if (old.includes('followup') && t.tags.includes('followup') && !t.done && (!t.status || t.status === 'todo' || t.status === 'doing')) t.status = 'followup';
+    if (old.length) t.tags = t.tags.filter((x: string) => !old.includes(x));
+    if (t.status === 'waiting') t.status = 'followup';
   }
+  if (old.length) d.tags = d.tags.filter((g: any) => !old.includes(g.id));
   return d;
 }
 const byIdIn = (arr: any[], id: string) => (arr || []).find((x: any) => x.id === id);
@@ -107,7 +121,7 @@ function listRef(d: Data, v: unknown): string {
 }
 function statusRef(d: Data, v: unknown, allowDone = false): string {
   const r = low(v);
-  if (r === 'waiting' || r === 'follow-up' || r === 'followup') return 'waiting';
+  if (r === 'waiting' || r === 'follow-up' || r === 'followup') return 'followup';
   const part = d.statuses.filter((x: any) => low(x.name).includes(r));
   const s = d.statuses.find((x: any) => x.id === v || low(x.name) === r) || (part.length === 1 ? part[0] : null);
   if (!s) fail(`Unknown status “${v}”. Statuses: ${ord(d.statuses).map((x: any) => x.name).join(', ')}.`);
@@ -137,8 +151,10 @@ function taskLine(d: Data, t: any) {
   if (t.priority && t.priority !== 'medium') bits.push(t.priority);
   if (t.status && t.status !== 'todo' && !t.done) bits.push('status: ' + statusName(d, t.status));
   if (t.tags && t.tags.length) bits.push(t.tags.map((id: string) => '#' + tagName(d, id)).join(' '));
+  if (t.sphere) bits.push('life area: ' + ((byIdIn(d.spheres, t.sphere) || {}).name || t.sphere));
+  if (t.location) bits.push('location: ' + ((byIdIn(d.locations, t.location) || {}).name || t.location));
   if (t.project) bits.push('project: ' + projName(d, t.project));
-  else if (t.area) bits.push('area: ' + areaName(d, t.area));
+  else if (t.area) bits.push('type: ' + areaName(d, t.area));
   if (t.repeat) bits.push('repeats ' + t.repeat);
   if (t.delegatedTo) bits.push('delegated to ' + t.delegatedTo);
   if (t.done) bits.push('done ' + (t.completedAt || ''));
@@ -162,7 +178,7 @@ function view(d: Data, name: string, c: Ctx, projectRef?: unknown, a: any = {}):
     case 'upcoming': return open.filter((t: any) => t.list === 'anytime' && t.date && t.date > T).sort(byDate);
     case 'anytime': return open.filter((t: any) => t.list === 'anytime' && !t.date && t.status !== 'paused').sort(byOrder);
     case 'someday': return open.filter((t: any) => t.list === 'someday').sort(byOrder);
-    case 'waiting': case 'followup': return open.filter((t: any) => hasTag(t, 'followup') || t.status === 'waiting').sort(byOrder);
+    case 'waiting': case 'followup': return open.filter((t: any) => t.status === 'followup' || t.status === 'waiting').sort(byOrder);
     case 'archived': return d.tasks.filter((t: any) => !t.done && t.status === 'archived').sort(byOrder);
     case 'list': { const id = listRef(d, a.list); return open.filter((t: any) => t.list === id).sort(byOrder); }
     case 'tag': { const g = findRef(d.tags, a.tag, 'tag', 'name'); return open.filter((t: any) => hasTag(t, g.id)).sort(byOrder); }
@@ -170,7 +186,7 @@ function view(d: Data, name: string, c: Ctx, projectRef?: unknown, a: any = {}):
     case 'paused': return open.filter((t: any) => t.status === 'paused').sort(byOrder);
     case 'urgent': return open.filter((t: any) => t.priority === 'urgent').sort(byDate);
     case 'deadlines': return open.filter((t: any) => t.deadline && t.date).sort(byDate);
-    case 'delegated': return open.filter((t: any) => t.delegatedTo || hasTag(t, 'delegated')).sort(byDate);
+    case 'delegated': return open.filter((t: any) => t.delegatedTo).sort(byDate);
     case 'routines': return open.filter((t: any) => t.repeat).sort(byDate);
     case 'logbook': return d.tasks.filter((t: any) => t.done).sort((a: any, b: any) => String(b.completedAt || '') < String(a.completedAt || '') ? -1 : 1);
     case 'project': { const p = project(d, projectRef); return d.tasks.filter((t: any) => t.project === p.id).sort((a: any, b: any) => (a.done ? 1 : 0) - (b.done ? 1 : 0) || byOrder(a, b)); }
@@ -198,7 +214,7 @@ function completeTask(d: Data, t: any, c: Ctx) {
 }
 function setStatus(d: Data, t: any, s: string, c: Ctx) {
   if (s === 'done') { if (!t.done) return completeTask(d, t, c); return null; }
-  if (s === 'waiting') { if (t.done) { t.done = false; t.completedAt = ''; } if (!t.status || t.status === 'done') t.status = 'todo'; if (byIdIn(d.tags, 'followup') && !hasTag(t, 'followup')) t.tags.push('followup'); return null; }
+  if (s === 'waiting') s = 'followup';
   if (t.done) { t.done = false; t.completedAt = ''; }
   t.status = s; return null;
 }
@@ -208,19 +224,23 @@ function applyTaskFields(d: Data, t: any, a: any, c: Ctx) {
   if (a.notes != null) t.notes = str(a.notes);
   if (a.date != null) { if (a.date !== '' && !isYmd(a.date)) fail('date must be YYYY-MM-DD (or empty to clear).'); t.date = a.date; if (!t.date) { t.deadline = false; } }
   if (a.time != null) { if (a.time !== '' && !isTime(a.time)) fail('time must be HH:MM (24h) or empty.'); t.time = a.time; }
-  if (a.priority != null) t.priority = oneOf(a.priority, PRIORITIES, 'priority');
+  if (a.priority != null) { const p = d.priorities.find((x: any) => x.id === a.priority || low(x.name) === low(a.priority)); if (!p) fail(`Priority must be one of: ${ord(d.priorities).map((x: any) => x.name).join(', ')}.`); t.priority = p.id; }
+  if (a.life_area != null) t.sphere = a.life_area === '' ? '' : findRef(d.spheres, a.life_area, 'life area', 'name').id;
+  if (a.location != null) t.location = a.location === '' ? '' : findRef(d.locations, a.location, 'location', 'name').id;
+  if (a.links != null) t.links = (Array.isArray(a.links) ? a.links : [a.links]).map((u: unknown) => String(u).trim()).filter(Boolean).map((u: string) => /^https?:\/\//i.test(u) ? u : 'https://' + u);
+  if (a.ai_chat != null) t.aiChat = String(a.ai_chat).trim();
   if (a.list != null) t.list = listRef(d, a.list);
   if (a.repeat != null) t.repeat = oneOf(a.repeat, REPEATS, 'repeat');
   if (a.project != null) {
     if (a.project === '') t.project = '';
     else { const p = project(d, a.project); t.project = p.id; t.area = p.area; }
   }
-  if (a.area != null && !t.project) t.area = a.area === '' ? '' : area(d, a.area).id;
+  const typ = a.type ?? a.area;
+  if (typ != null && !t.project) t.area = typ === '' ? '' : area(d, typ).id;
   if (a.delegated_to != null) {
     t.delegatedTo = str(a.delegated_to, 80).trim();
     if (!Array.isArray(t.tags)) t.tags = [];
-    if (t.delegatedTo && byIdIn(d.tags, 'delegated') && !hasTag(t, 'delegated')) t.tags.push('delegated');
-    if (!t.delegatedTo) t.tags = t.tags.filter((x: string) => x !== 'delegated');
+    if (t.delegatedTo && !d.settings.assistants.includes(t.delegatedTo)) d.settings.assistants.push(t.delegatedTo);
   }
   if (!Array.isArray(t.tags)) t.tags = [];
   const made: string[] = [];
@@ -264,14 +284,18 @@ const taskProps = {
   notes: S('Task notes (replaces existing notes)'),
   date: S('When to do it, YYYY-MM-DD; empty string clears it'),
   time: S('HH:MM, 24-hour; empty string clears it'),
-  priority: S('Priority', { enum: PRIORITIES }),
+  priority: S('Priority name: Urgent, High, Medium, Low or the user\'s own'),
   list: S('inbox (not sorted yet), anytime (active), someday (later/maybe), or the id/name of one of the user\'s own lists. Today and Most important are not lists: use date / priority'),
   project: S('Project id or name; empty string removes the project'),
-  area: S('Area id or name (used when there is no project)'),
+  type: S('Type: Personal or Business (id or name; used when there is no project)'),
+  life_area: S('Life area: Health, Security, Wealth, Family, Friends & Relatives, Household & Assets management, Travel, Leisure & Hobbies, Routines, Self improvement, Recognition, Self-realization, Betterment, or the user\'s own; empty string clears'),
+  location: S('Location: Online, USA, Russia, Bali or the user\'s own; empty string clears'),
+  links: { type: 'array', items: { type: 'string' }, description: 'Links for the task (replaces the list)' },
+  ai_chat: S('Link to the AI chat where this task was researched'),
   repeat: S('Repeats after completion', { enum: REPEATS }),
   deadline: { type: 'boolean', description: 'The date is a hard deadline' },
-  delegated_to: S('Name of the person it is delegated to (adds the Delegated tag); empty string to take it back'),
-  tags: { type: 'array', items: { type: 'string' }, description: 'Tag names (replaces the task\'s tags). Missing tags are created. Built-in: Follow-up, Delegated' },
+  delegated_to: S('Who it is delegated to: AI assistant, Personal assistant, Business assistant or another name; empty string to take it back'),
+  tags: { type: 'array', items: { type: 'string' }, description: 'Tag names (replaces the task\'s tags). Missing tags are created. Start with: Moscow, Bali, USA' },
 };
 const RO = { readOnlyHint: true };
 const RW = { readOnlyHint: false, destructiveHint: false };
@@ -287,11 +311,11 @@ export const TOOLS = [
   { name: 'focus_create_note', title: 'Focus: create note', annotations: RW, description: 'Create a note.', inputSchema: { type: 'object', properties: { title: S('Title'), body: S('Text'), project: S('Project id or name (optional)'), pinned: { type: 'boolean' } }, required: ['title'] } },
   { name: 'focus_update_note', title: 'Focus: update note', annotations: RW, description: 'Change a note: new title, replace the text, or append text at the end.', inputSchema: { type: 'object', properties: { id: S('Note id (or title)'), title: S('New title'), body: S('New full text (replaces)'), append: S('Text to add at the end'), pinned: { type: 'boolean' } }, required: ['id'] } },
   { name: 'focus_save_project', title: 'Focus: create or update project', annotations: RW, description: 'Create a project (no id) or change one (with id): name, area, status, notes.', inputSchema: { type: 'object', properties: { id: S('Project id or name, to update; omit to create'), name: S('Project name'), area: S('Area id or name'), status: S('Status', { enum: PROJECT_STATUSES }), notes: S('Project notes (replaces)'), append_notes: S('Text to add to the notes') } } },
-  { name: 'focus_organize', title: 'Focus: lists, tags, statuses', annotations: RW, description: 'Create or rename one of the user\'s lists, tags or statuses (no deleting: that is done in the app). Omit id to create.', inputSchema: { type: 'object', properties: { kind: S('What', { enum: ['list', 'tag', 'status'] }), id: S('Existing id or name, to rename / recolour'), name: S('New name'), color: S('For tag or status', { enum: COLORS }) }, required: ['kind', 'name'] } },
+  { name: 'focus_organize', title: 'Focus: lists, tags, statuses', annotations: RW, description: 'Create or rename one of the user\'s lists, tags or statuses (no deleting: that is done in the app). Omit id to create.', inputSchema: { type: 'object', properties: { kind: S('What', { enum: ['list', 'tag', 'status', 'priority', 'life_area', 'location'] }), id: S('Existing id or name, to rename / recolour'), name: S('New name'), color: S('For tag, status or priority', { enum: COLORS }) }, required: ['kind', 'name'] } },
   { name: 'focus_add_money', title: 'Focus: income or expense', annotations: RW, description: 'Record income or an expense in Money → Income & Expenses.', inputSchema: { type: 'object', properties: { kind: S('Type', { enum: ['expense', 'income'] }), amount: { type: 'number', description: 'Positive amount' }, currency: S('Currency code, e.g. USD, EUR, RUB, IDR'), category: S('Expense: Housing, Family living, Utilities, Transport, Health, Education, Travel, Business, Other. Income: Salary, Business, Rental, Investments, Other'), date: S('YYYY-MM-DD, default today'), note: S('Note'), planned: { type: 'boolean', description: 'Planned rather than actual' } }, required: ['kind', 'amount'] } },
   { name: 'focus_habit', title: 'Focus: habits', annotations: RW, description: 'Mark a habit done (or not done) for a day, or create a new habit.', inputSchema: { type: 'object', properties: { habit: S('Habit id or name'), date: S('YYYY-MM-DD, default today'), done: { type: 'boolean', description: 'Default true' }, create: { type: 'boolean', description: 'Create a new habit with this name' } }, required: ['habit'] } },
   { name: 'focus_journal', title: 'Focus: journal', annotations: RW, description: 'Write in the diary for a day (mood 1–5: Awful, Bad, Okay, Good, Great).', inputSchema: { type: 'object', properties: { date: S('YYYY-MM-DD, default today'), text: S('Text'), mode: S('append (default) or replace', { enum: ['append', 'replace'] }), mood: { type: 'integer', minimum: 1, maximum: 5 } } } },
-  { name: 'focus_add_item', title: 'Focus: add to a list', annotations: RW, description: 'Add a bookmark, a watch/read/listen item, a planned purchase, or a friend to keep in touch with.', inputSchema: { type: 'object', properties: { type: S('List', { enum: ['bookmark', 'media', 'purchase', 'friend'] }), title: S('Title / name'), url: S('Bookmark or media link'), tag: S('Bookmark tag'), note: S('Note'), media_type: S('For media', { enum: MEDIA_TYPES }), by: S('For media: author, director or artist'), amount: { type: 'number', description: 'For purchase: price' }, currency: S('For purchase'), priority: S('For purchase', { enum: PRIORITIES }), status: S('For media or purchase (Wishlist, Researching, Planned, Saving, Bought / To do, In progress, Done)'), contact: S('For friend: phone, @handle or email'), cadence_days: { type: 'integer', description: 'For friend: keep in touch every N days (default 30)' } }, required: ['type', 'title'] } },
+  { name: 'focus_add_item', title: 'Focus: add to a list', annotations: RW, description: 'Add a bookmark, a watch/read/listen item, a planned purchase, or a friend to keep in touch with.', inputSchema: { type: 'object', properties: { type: S('List', { enum: ['bookmark', 'media', 'purchase', 'friend'] }), title: S('Title / name'), url: S('Bookmark or media link'), tag: S('Bookmark tag'), note: S('Note'), media_type: S('For media', { enum: MEDIA_TYPES }), by: S('For media: author, director or artist'), amount: { type: 'number', description: 'For purchase: price' }, currency: S('For purchase'), priority: S('For purchase', { enum: PURCHASE_PRIORITIES }), status: S('For media or purchase (Wishlist, Researching, Planned, Saving, Bought / To do, In progress, Done)'), contact: S('For friend: phone, @handle or email'), cadence_days: { type: 'integer', description: 'For friend: keep in touch every N days (default 30)' } }, required: ['type', 'title'] } },
   { name: 'focus_update_item', title: 'Focus: update a list item', annotations: RW, description: 'Change a bookmark, media item, purchase or friend (for a friend, set contacted_today=true to log a contact).', inputSchema: { type: 'object', properties: { type: S('List', { enum: ['bookmark', 'media', 'purchase', 'friend'] }), id: S('Item id or title/name'), title: S('New title / name'), url: S('Link'), tag: S('Tag'), note: S('Note (replaces)'), status: S('New status'), amount: { type: 'number' }, saved: { type: 'number', description: 'For purchase: amount saved so far' }, currency: S('Currency'), contacted_today: { type: 'boolean' } }, required: ['type', 'id'] } },
 ];
 export const WRITE_TOOLS = new Set(TOOLS.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name));
@@ -327,7 +351,8 @@ function exec(name: string, a: any, d: Data, c: Ctx): Result {
         block('Delegated', d, view(d, 'delegated', c), 15),
         habits,
         'Projects: ' + (projects.length ? projects.map((p: any) => `${p.name} [${p.id}] (${areaName(d, p.area)}, ${p.status || 'active'}, ${d.tasks.filter((t: any) => t.project === p.id && !t.done).length} open)`).join('; ') : 'none'),
-        'Areas: ' + d.areas.map((x: any) => `${x.name} [${x.id}]`).join(', '),
+        'Types: ' + d.areas.map((x: any) => `${x.name} [${x.id}]`).join(', '),
+        'Life areas: ' + ord(d.spheres).map((x: any) => x.name).join(', ') + '. Locations: ' + ord(d.locations).map((x: any) => x.name).join(', ') + '. Priorities: ' + ord(d.priorities).map((x: any) => x.name).join(', ') + '. Delegated to: ' + d.settings.assistants.join(', ') + '.',
         'Lists: ' + ord(d.lists).map((l: any) => l.id === 'today' || l.id === 'urgent' ? `${l.name} (smart: by ${l.id === 'today' ? 'date' : 'priority'})` : `${l.name} [${l.id}] (${d.tasks.filter((t: any) => isOpen(t) && t.list === l.id).length} open)`).join('; '),
         'Statuses: ' + ord(d.statuses).map((x: any) => `${x.name} [${x.id}]`).join(', ') + '. Tags: ' + (d.tags.length ? ord(d.tags).map((x: any) => `#${x.name} (${d.tasks.filter((t: any) => isOpen(t) && hasTag(t, x.id)).length})`).join(', ') : 'none') + '.',
         `Open tasks in total: ${d.tasks.filter(isOpen).length}. Notes: ${d.notes.length}.`,
@@ -409,17 +434,17 @@ function exec(name: string, a: any, d: Data, c: Ctx): Result {
       return ok(`${isNew ? 'Created' : 'Updated'} project “${p.name}” [${p.id}] in ${areaName(d, p.area)} (${p.status}).`);
     }
     case 'focus_organize': {
-      const kind = oneOf(a.kind, ['list', 'tag', 'status'], 'kind');
-      const arr = kind === 'list' ? d.lists : kind === 'tag' ? d.tags : d.statuses;
+      const kind = oneOf(a.kind, ['list', 'tag', 'status', 'priority', 'life_area', 'location'], 'kind');
+      const arr = ({ list: d.lists, tag: d.tags, status: d.statuses, priority: d.priorities, life_area: d.spheres, location: d.locations } as any)[kind];
       const name = str(a.name, 60).replace(kind === 'tag' ? /^#/ : /^$/, '').trim(); if (!name) fail('Give it a name.');
       let x: any = a.id ? findRef(arr, a.id, kind, 'name') : null;
       if (!x) {
         if (arr.some((y: any) => low(y.name) === low(name))) fail(`A ${kind} “${name}” already exists.`);
-        x = { id: (kind === 'list' ? 'l_' : kind === 'tag' ? 'tg_' : 'st_') + c.uid(), name, builtin: false, order: Math.max(0, ...arr.map((y: any) => y.order || 0)) + 1 };
-        if (kind !== 'list') x.color = 'gray';
+        x = { id: (({ list: 'l_', tag: 'tg_', status: 'st_', priority: 'pr_', life_area: 'sp_', location: 'lo_' } as any)[kind]) + c.uid(), name, builtin: false, order: Math.max(0, ...arr.map((y: any) => y.order || 0)) + 1 };
+        if (kind === 'tag' || kind === 'status' || kind === 'priority') x.color = 'gray';
         arr.push(x);
       } else { x.name = name; if (x.short) delete x.short; }
-      if (a.color && kind !== 'list') x.color = oneOf(a.color, COLORS, 'color');
+      if (a.color && (kind === 'tag' || kind === 'status' || kind === 'priority')) x.color = oneOf(a.color, COLORS, 'color');
       return ok(`${a.id ? 'Renamed' : 'Created'} ${kind} “${x.name}” [${x.id}].`);
     }
     case 'focus_add_money': {
@@ -464,7 +489,7 @@ function exec(name: string, a: any, d: Data, c: Ctx): Result {
         d.media.push(m); return ok(`Added to Watch·Read·Listen: ${title} (${m.type}).`);
       }
       if (type === 'purchase') {
-        const p = { id: 'pu_' + c.uid(), title, amount: Math.round((Number(a.amount) || 0) * 100) / 100, currency: str(a.currency || 'USD', 5).toUpperCase(), saved: 0, priority: a.priority ? oneOf(a.priority, PRIORITIES, 'priority') : 'medium', status: a.status ? oneOf(a.status, PURCHASE_STATUSES, 'status') : 'Planned', date: '', note: str(a.note, 2000), createdAt: c.now };
+        const p = { id: 'pu_' + c.uid(), title, amount: Math.round((Number(a.amount) || 0) * 100) / 100, currency: str(a.currency || 'USD', 5).toUpperCase(), saved: 0, priority: a.priority ? oneOf(a.priority, PURCHASE_PRIORITIES, 'priority') : 'medium', status: a.status ? oneOf(a.status, PURCHASE_STATUSES, 'status') : 'Planned', date: '', note: str(a.note, 2000), createdAt: c.now };
         d.purchases.push(p); return ok(`Added purchase: ${title}${p.amount ? ' · ' + p.amount + ' ' + p.currency : ''} (${p.status}).`);
       }
       const f = { id: 'fr_' + c.uid(), name: title, contact: str(a.contact, 200), cadence: Math.max(1, Number(a.cadence_days) || 30), last: '', birthday: '', notes: str(a.note, 2000), createdAt: c.now };

@@ -95,7 +95,7 @@ Deno.test({ name: 'tasks: create, update, complete, reopen', sanitizeResources: 
   assertEquals(meet.area, 'business');
   assert(meet.order < 0, 'new tasks go on top like in the app');
   r = await call('focus_update_task', { id: 'Call bank', date: '2026-11-29', priority: 'urgent', append_notes: 'ask about limits', check_subtasks: ['find number'], status: 'waiting' });
-  assertMatch(r.text, /Anytime · 2026-11-29 · urgent · #Follow-up/);
+  assertMatch(r.text, /Anytime · 2026-11-29 · urgent · status: Follow-up/);
   d = (await row()).data;
   const bank = d.tasks.find((t: any) => t.id === 't2');
   assertEquals(bank.notes, 'about card\n\nask about limits');
@@ -149,32 +149,51 @@ Deno.test({ name: 'parallel writes are not lost (row lock)', sanitizeResources: 
   assertEquals(Number(version), 19);
 } });
 
-Deno.test({ name: 'lists, statuses and tags (Focus 1.9)', sanitizeResources: false, sanitizeOps: false, async fn() {
+Deno.test({ name: 'lists, statuses, tags and the 1.11 task fields', sanitizeResources: false, sanitizeOps: false, async fn() {
   await reset();
-  // older data: Follow-up status and Delegated-to become tags as soon as Claude touches it
-  let r = await call('focus_list_tasks', { view: 'followup' });
-  assertMatch(r.text, /none/);
-  r = await call('focus_organize', { kind: 'list', name: 'Calls' });
+  let r = await call('focus_organize', { kind: 'list', name: 'Calls' });
   assertMatch(r.text, /Created list “Calls”/);
-  r = await call('focus_create_task', { title: 'Call Aldo', list: 'calls', tags: ['Follow-up', 'Berawa'] });
-  assertMatch(r.text, /Call Aldo · Calls · #Follow-up #Berawa/);
+  r = await call('focus_create_task', { title: 'Call Aldo', list: 'calls', status: 'Follow-up', tags: ['Bali', 'Berawa'], life_area: 'Household', location: 'bali', priority: 'High', links: ['example.com/lease'], ai_chat: 'https://claude.ai/chat/x' });
+  assertMatch(r.text, /Call Aldo · Calls · high · status: Follow-up · #Bali #Berawa · life area: Household & Assets management · location: Bali/);
   assertMatch(r.text, /New tag created: Berawa/);
   r = await call('focus_create_task', { title: 'Z', list: 'Today' });
   assert(r.isError); assertMatch(r.text, /smart lists/);
+  r = await call('focus_create_task', { title: 'Z', priority: 'Critical' });
+  assert(r.isError); assertMatch(r.text, /Priority must be one of: Urgent, High, Medium, Low/);
   assertMatch((await call('focus_list_tasks', { view: 'list', list: 'Calls' })).text, /Call Aldo/);
   assertMatch((await call('focus_list_tasks', { view: 'tag', tag: 'Berawa' })).text, /Call Aldo/);
   assertMatch((await call('focus_list_tasks', { view: 'followup' })).text, /Call Aldo/);
-  r = await call('focus_update_task', { id: 'Call Aldo', status: 'In progress', remove_tags: ['Follow-up'] });
-  assertMatch(r.text, /status: In progress · #Berawa/);
-  r = await call('focus_update_task', { id: 'Call bank', delegated_to: 'Assistant' });
-  assertMatch(r.text, /#Delegated · delegated to Assistant/);
+  r = await call('focus_update_task', { id: 'Call Aldo', status: 'In progress', remove_tags: ['Bali'], location: '' });
+  assertMatch(r.text, /status: In progress · #Berawa · life area/);
+  assertMatch((await call('focus_list_tasks', { view: 'followup' })).text, /none/);
+  r = await call('focus_update_task', { id: 'Call bank', delegated_to: 'Business assistant' });
+  assertMatch(r.text, /delegated to Business assistant/);
+  assertMatch((await call('focus_list_tasks', { view: 'delegated' })).text, /Call bank/);
   r = await call('focus_update_task', { id: 'Call bank', status: 'Archive' });
   assertMatch((await call('focus_list_tasks', { view: 'inbox' })).text, /none/);
   assertMatch((await call('focus_list_tasks', { view: 'archived' })).text, /Call bank/);
-  assertMatch((await call('focus_overview')).text, /Lists: .*Calls \[l_/);
+  assertMatch((await call('focus_organize', { kind: 'location', name: 'Dubai' })).text, /Created location “Dubai”/);
+  const o = (await call('focus_overview')).text;
+  assertMatch(o, /Lists: .*Calls \[l_/);
+  assertMatch(o, /Locations: Online, USA, Russia, Bali, Dubai/);
   const d = (await row()).data;
-  assertEquals(d.lists.find((l: any) => l.name === 'Calls').builtin, false);
-  assertEquals(d.tags.map((g: any) => g.name), ['Follow-up', 'Delegated', 'Berawa']);
+  const t = d.tasks.find((x: any) => x.title === 'Call Aldo');
+  assertEquals([t.sphere, t.location, t.links, t.aiChat], ['sp_household_assets_management', '', ['https://example.com/lease'], 'https://claude.ai/chat/x']);
+  assertEquals(d.tags.map((g: any) => g.name), ['Moscow', 'Bali', 'USA', 'Berawa']);
+} });
+
+Deno.test({ name: 'data from Focus 1.10: Follow-up and Delegated tags become a status and the field', sanitizeResources: false, sanitizeOps: false, async fn() {
+  await reset();
+  const d0 = structuredClone(seed) as any;
+  d0.tags = [{ id: 'followup', name: 'Follow-up', builtin: true }, { id: 'delegated', name: 'Delegated', builtin: true }];
+  d0.tasks[1].tags = ['followup']; d0.tasks[2].tags = ['delegated'];
+  await sql`update public.focus_state set data = ${sql.json(d0)} where user_id = ${UID}`;
+  assertMatch((await call('focus_list_tasks', { view: 'followup' })).text, /Call bank/);
+  await call('focus_create_task', { title: 'touch' });
+  const d = (await row()).data;
+  assertEquals(d.tasks.find((t: any) => t.id === 't2').status, 'followup');
+  assertEquals(d.tasks.find((t: any) => t.id === 't3').tags, []);
+  assertEquals(d.tags.length, 0);
 } });
 
 // The app's own three-way merge, copied from app.js (v1.4 cloud sync), to prove the phone keeps

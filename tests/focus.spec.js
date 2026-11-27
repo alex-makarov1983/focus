@@ -2,7 +2,7 @@
 const { test, expect } = require('@playwright/test');
 
 const SCREENS = ['Home', 'Inbox', 'Today', 'Upcoming', 'Anytime', 'Someday', 'Logbook', 'Calendar', 'Kanban',
-  'Areas', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important & Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal', 'Regular routines', 'AI assistant', 'All tasks'];
+  'Types', 'Projects', 'Notes', 'Safe Storage', 'Money', 'Major Purchases', 'Most important & Urgent', 'Follow-up', 'Bookmarks', 'Delegated', 'Settings', 'Habits', 'Whole life', 'Paused', 'Friends', 'Travel planner', 'Watch · Read · Listen', 'Cloud & account', 'Deadlines', 'Journal', 'Regular routines', 'AI assistant', 'All tasks'];
 
 /** Tap on touch devices, click elsewhere — exercises the same path a finger uses on iPhone. */
 async function press(page, locator) {
@@ -342,7 +342,7 @@ test('areas are exactly Personal and Business; a project belongs to one area', a
   await press(page, page.locator('#backBtn'));
   await press(page, page.locator('[data-act=projFilter][data-v=personal]'));
   await expect(page.locator('#screen .item-card', { hasText: 'Hiring plan' })).toHaveCount(0);
-  await viaMenu(page, 'Areas');
+  await viaMenu(page, 'Types');
   await press(page, page.locator('.area-tile', { hasText: 'Business' }));
   await expect(page.locator('#screen .item-card', { hasText: 'Hiring plan' })).toHaveCount(1);
 });
@@ -383,7 +383,7 @@ test('Home: 4 city clocks, USDT/RUB, BTC, weather and traffic where you are, qui
   await expect(page.locator('#wTemp').locator('xpath=..')).toContainText('Bali');
   await expect(page.locator('a.widget[href*="google.com/maps/@-8.6500,115.2200"]')).toHaveCount(1);
   await expect(page.locator('a.widget[href*="google.com/maps"]')).toContainText('Bali');
-  await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
+  await expect(page.locator('.tiles.eight .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Backlog', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
   await expect(page.locator('#screen')).not.toContainText('Waiting on others');
   await press(page, page.locator('.tile', { hasText: 'Most important' }));
   await expect(h1(page)).toHaveText('Most important & Urgent');
@@ -606,7 +606,7 @@ test('a clean install starts empty (no demo data)', async ({ page }) => {
   await expect(page.locator('.tile', { hasText: 'Inbox' }).locator('.n')).toHaveText('0');
   await viaMenu(page, 'Projects');
   await expect(page.locator('#screen .item-card')).toHaveCount(0);
-  await viaMenu(page, 'Areas');
+  await viaMenu(page, 'Types');
   await expect(page.locator('.area-tile h3')).toHaveText(['Personal', 'Business']);
 });
 
@@ -874,8 +874,7 @@ test('Quick add follows the screen: Today, Most important, Follow-up, a project'
   const by = (n) => d.tasks.find((x) => x.title === n);
   expect(by('Today item').date).toBe(t);
   expect(by('Urgent item').priority).toBe('urgent');
-  expect(by('Waiting item').status).toBe('todo');
-  expect(by('Waiting item').tags).toContain('followup');
+  expect(by('Waiting item').status).toBe('followup');
   expect(by('Project item').project).toBe('p_home');
 });
 
@@ -933,7 +932,7 @@ test('Menu: grouped and collapsible, areas with their projects, Inbox count on t
   await open(page);
   await expect(page.locator('#tabInboxN')).toBeVisible();
   await press(page, page.locator('#menuBtn'));
-  await expect(page.locator('#drawer .group-btn')).toHaveText(['Tasks', 'Views', 'Areas & projects', 'Life', 'Knowledge', 'Vault', 'Money', 'App']);
+  await expect(page.locator('#drawer .group-btn')).toHaveText(['Tasks', 'Views', 'Types & projects', 'Life', 'Knowledge', 'Vault', 'Money', 'App']);
   await expect(page.locator('#drawer .nav-proj.child', { hasText: 'Home renovation' })).toHaveCount(1);
   await press(page, page.locator('#drawer .group-btn', { hasText: 'Life' }));
   await expect(page.locator('#drawer .nav-link[data-go=habits]')).toHaveCount(0);

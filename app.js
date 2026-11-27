@@ -6004,7 +6004,7 @@
   };
 
   /* ================= v1.10: lists, statuses and tags you manage; drag tasks between lists; Home list tiles; structure settings ================= */
-  APP_VERSION = '1.10.0';
+  APP_VERSION = '1.10.0'; /* 1.11 is set below */
 
   ICON.tag = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0z"/><circle cx="8.2" cy="8.2" r="1.4"/></svg>';
   ICON.list = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.5" cy="6.5" r="1.1"/><circle cx="4.5" cy="12" r="1.1"/><circle cx="4.5" cy="17.5" r="1.1"/></svg>';
@@ -6023,19 +6023,21 @@
   var STATUS_DEFAULTS = [
     { id: 'todo', name: 'Not started', color: 'gray', builtin: true },
     { id: 'doing', name: 'In progress', color: 'blue', builtin: true },
-    { id: 'done', name: 'Done', color: 'green', builtin: true },
+    { id: 'followup', name: 'Follow-up', color: 'purple', builtin: true },
     { id: 'paused', name: 'Paused', color: 'orange', builtin: true },
+    { id: 'done', name: 'Done', color: 'green', builtin: true },
     { id: 'archived', name: 'Archive', color: 'gray', builtin: true }
   ];
   var TAG_DEFAULTS = [
-    { id: 'followup', name: 'Follow-up', color: 'purple', builtin: true },
-    { id: 'delegated', name: 'Delegated', color: 'teal', builtin: true }
+    { id: 'moscow', name: 'Moscow', color: 'red' },
+    { id: 'bali', name: 'Bali', color: 'green' },
+    { id: 'usa', name: 'USA', color: 'blue' }
   ];
   var LOCKED_STATUSES = ['todo', 'done'];
   var COLORS = [['gray', 'Gray'], ['blue', 'Blue'], ['green', 'Green'], ['orange', 'Orange'], ['red', 'Red'], ['purple', 'Purple'], ['teal', 'Teal'], ['pink', 'Pink']];
   var LIST_SORTS = [['manual', 'My order (drag)'], ['date', 'Date'], ['priority', 'Priority'], ['title', 'Title A–Z'], ['newest', 'Newest first']];
-  var STATUS_ROUTES = { paused: 'paused', archived: 'archive' };
-  var TAG_ROUTES = { followup: 'followup', delegated: 'delegated' };
+  var STATUS_ROUTES = { followup: 'followup', paused: 'paused', archived: 'archive' };
+  var TAG_ROUTES = {};
 
   function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
   function isCustomList(id) { return /^l_/.test(id || ''); }
@@ -6054,8 +6056,7 @@
   function syncTask(t, d) {
     if (!Array.isArray(t.tags)) t.tags = [];
     var tagOk = function (id) { return !!byId(d.tags, id); };
-    if (t.status === 'waiting') { t.status = 'todo'; if (tagOk('followup') && t.tags.indexOf('followup') < 0) t.tags.push('followup'); }
-    if (t.delegatedTo && tagOk('delegated') && t.tags.indexOf('delegated') < 0) t.tags.push('delegated');
+    if (t.status === 'waiting') t.status = byId(d.statuses, 'followup') ? 'followup' : 'todo';
     if (!t.done && t.status !== 'done' && !byId(d.statuses, t.status)) t.status = 'todo';
     if (t.tags.length) t.tags = t.tags.filter(function (id, i, a) { return tagOk(id) && a.indexOf(id) === i; });
     if (t.list && t.list !== 'inbox' && t.list !== 'anytime' && t.list !== 'someday' && !byId(d.lists, t.list)) t.list = 'inbox';
@@ -6067,6 +6068,8 @@
     LOCKED_STATUSES.forEach(function (id) { if (!byId(d.statuses, id)) d.statuses.unshift(Object.assign({ order: 0 }, byId(STATUS_DEFAULTS, id))); });
     if (!Array.isArray(d.tags)) d.tags = seedColl(TAG_DEFAULTS);
     var S = d.settings;
+    if (!S.layout || typeof S.layout !== 'object') S.layout = {};
+    if (!S.layout.v111) migrate111(d);
     if (!S.layout || typeof S.layout !== 'object') S.layout = {};
     var L = S.layout;
     if (!Array.isArray(L.tiles)) L.tiles = [];
@@ -6082,6 +6085,30 @@
   }
   var _normalize110 = normalize;
   normalize = function (d) { return normalize19(_normalize110(d)); };
+  /* 1.11: Follow-up is a status again, Delegated is the "Delegated to" field, tags start as Moscow, Bali, USA, and there is a Backlog list. Runs once per data set. */
+  function migrate111(d) {
+    var L = d.settings.layout;
+    if (!byId(d.statuses, 'followup')) {
+      var doing = byId(d.statuses, 'doing'), at = doing ? (doing.order || 0) + 0.5 : 1.5;
+      d.statuses.push({ id: 'followup', name: 'Follow-up', color: 'purple', builtin: true, order: at });
+    }
+    /* built-in statuses in the order Not started, In progress, Follow-up, Paused, Done, Archive; your own keep their place after them */
+    var seq = ['todo', 'doing', 'followup', 'paused', 'done', 'archived'];
+    seq.forEach(function (id, i) { var x = byId(d.statuses, id); if (x) x.order = i + 1; });
+    d.statuses.forEach(function (x) { if (seq.indexOf(x.id) < 0) x.order = 10 + (x.order || 0); });
+    var oldTags = d.tags.filter(function (g) { return g.builtin && (g.id === 'followup' || g.id === 'delegated'); }).map(function (g) { return g.id; });
+    d.tasks.forEach(function (t) {
+      if (!Array.isArray(t.tags)) return;
+      if (t.tags.indexOf('followup') >= 0 && oldTags.indexOf('followup') >= 0 && !t.done && (!t.status || t.status === 'todo' || t.status === 'doing' || t.status === 'waiting')) t.status = 'followup';
+      t.tags = t.tags.filter(function (id) { return oldTags.indexOf(id) < 0; });
+    });
+    d.tags = d.tags.filter(function (g) { return oldTags.indexOf(g.id) < 0; });
+    TAG_DEFAULTS.forEach(function (x) { if (!byId(d.tags, x.id) && !d.tags.some(function (g) { return g.name.toLowerCase() === x.name.toLowerCase(); })) d.tags.push(Object.assign({ order: d.tags.length + 1 }, x)); });
+    if (!byId(d.lists, 'l_backlog')) d.lists.push({ id: 'l_backlog', name: 'Backlog', builtin: false, order: Math.max.apply(null, d.lists.map(function (l) { return l.order || 0; }).concat([0])) + 1 });
+    if (Array.isArray(L.tiles)) L.tiles = L.tiles.map(function (k) { return k === 'tag:followup' ? 'status:followup' : k === 'tag:delegated' ? 'delegated' : k; });
+    if (L.tileVis) { if ('tag:followup' in L.tileVis) { L.tileVis['status:followup'] = L.tileVis['tag:followup']; delete L.tileVis['tag:followup']; } if ('tag:delegated' in L.tileVis) { L.tileVis.delegated = L.tileVis['tag:delegated']; delete L.tileVis['tag:delegated']; } }
+    L.v111 = true;
+  }
 
   /* Keep the app's constant tables, routes and menu in step with the lists, statuses and tags in the data. */
   var dynRoutes = [];
@@ -6102,6 +6129,7 @@
     LIST_DEFAULTS.forEach(function (x) { var l = byId(d.lists, x.id); if (l && ROUTES[x.id]) ROUTES[x.id].title = l.name; });
     Object.keys(TAG_ROUTES).forEach(function (id) { var g = byId(d.tags, id); if (g) ROUTES[TAG_ROUTES[id]].title = g.name; });
     var ps = byId(d.statuses, 'paused'); if (ps) ROUTES.paused.title = ps.name;
+    var fu = byId(d.statuses, 'followup'); if (fu) ROUTES.followup.title = fu.name;
     var ar = byId(d.statuses, 'archived'); ROUTES.archive.title = ar ? ar.name : 'Archive';
     /* menu: custom lists after the built-in lists, tags after Delegated, statuses after Paused, Archive after Done */
     var g0 = DRAWER_GROUPS[0][1];
@@ -6123,7 +6151,7 @@
 
   /* ---------- selectors ---------- */
   isOpen = function (t) { return !t.done && t.status !== 'archived'; };
-  sel.waiting = function () { return db.tasks.filter(function (t) { return isOpen(t) && (hasTag(t, 'followup') || t.status === 'waiting'); }).sort(byOrder); };
+  sel.waiting = function () { return db.tasks.filter(function (t) { return isOpen(t) && (t.status === 'followup' || t.status === 'waiting'); }).sort(byOrder); };
   sel.delegatedAll = function () { return db.tasks.filter(function (t) { return isOpen(t) && (hasTag(t, 'delegated') || t.delegatedTo); }); };
   sel.archived = function () { return db.tasks.filter(function (t) { return !t.done && t.status === 'archived'; }).sort(byOrder); };
   sel.inList = function (id) { return db.tasks.filter(function (t) { return active(t) && t.list === id; }).sort(byOrder); };
@@ -6131,7 +6159,7 @@
   sel.withStatus = function (id) { return db.tasks.filter(function (t) { return !t.done && t.status === id; }).sort(byOrder); };
   var _setStatus110 = setTaskStatus;
   setTaskStatus = function (t, s) {
-    if (s === 'waiting') { if (t.done) reopenTask(t); if (!t.status || t.status === 'waiting' || t.status === 'done') t.status = 'todo'; addTag(t, 'followup'); return; }
+    if (s === 'waiting') s = statusById('followup') ? 'followup' : 'todo';
     _setStatus110(t, s);
   };
   var _quickCreate110 = quickCreate;
@@ -6214,8 +6242,7 @@
     if (r.name.indexOf('tag_') === 0 && tagById(r.name.slice(4))) return { list: 'anytime', tags: [r.name.slice(4)], where: tagById(r.name.slice(4)).name };
     if (r.name.indexOf('status_') === 0 && statusById(r.name.slice(7))) return { list: 'anytime', status: r.name.slice(7), where: statusById(r.name.slice(7)).name };
     c = _addCtx110();
-    if (r.name === 'followup') { c.tags = ['followup']; delete c.status; }
-    if (r.name === 'delegated') c.tags = ['delegated'];
+    if (r.name === 'followup') c.status = 'followup';
     if (c.list === 'inbox' && !c.project && !c.date && db.settings.layout.newTaskList !== 'inbox' && (r.name === 'home' || r.name === 'alltasks')) {
       var nl = db.settings.layout.newTaskList;
       if (nl === 'anytime' || nl === 'someday' || listById(nl)) { c.list = nl; c.where = (listById(nl) || {}).name || label(LISTS, nl); }
@@ -6249,8 +6276,7 @@
     _taskForm110(t, ctx);
     var form = $('#sheet form[data-form=task]'); if (!form || form.querySelector('.tag-pick')) return;
     var chosen = t ? (t.tags || []).slice() : (ctx.tags || []).slice();
-    if (!t && ctx.status === 'waiting') chosen.push('followup');
-    if (!t && ctx.delegatedTo) chosen.push('delegated');
+    if (!t && ctx.status === 'waiting') ctx.status = 'followup';
     var st = form.elements.status, anchor = st ? (st.closest('.fields2') || st.closest('.field')) : null;
     if (anchor) anchor.insertAdjacentHTML('afterend', tagPickerHtml(chosen));
     if (!t && ctx.status && st && statusById(ctx.status)) st.value = ctx.status;
@@ -6355,11 +6381,12 @@
       if (l.hidden) return;
       out.push({ key: 'list:' + l.id, route: l.id, label: l.short || l.name, n: l.builtin ? counts[l.id] : sel.inList(l.id).length, cls: l.id === 'urgent' && imp.length ? 'alert' : '', kind: 'list', def: true });
     });
-    ordered(db.tags).forEach(function (g) { out.push({ key: 'tag:' + g.id, route: tagRoute(g), label: g.name, n: sel.withTag(g.id).length + (g.id === 'delegated' ? db.tasks.filter(function (t) { return isOpen(t) && t.delegatedTo && !hasTag(t, 'delegated'); }).length : g.id === 'followup' ? db.tasks.filter(function (t) { return isOpen(t) && t.status === 'waiting' && !hasTag(t, 'followup'); }).length : 0), kind: 'tag', def: !!TAG_ROUTES[g.id] }); });
+    ordered(db.tags).forEach(function (g) { out.push({ key: 'tag:' + g.id, route: tagRoute(g), label: '#' + g.name, n: sel.withTag(g.id).length, kind: 'tag', def: false }); });
     ordered(db.statuses).forEach(function (s) {
       var r = statusRoute(s); if (!r) return;
-      out.push({ key: 'status:' + s.id, route: r, label: s.name, n: s.id === 'archived' ? sel.archived().length : sel.withStatus(s.id).length, kind: 'status', def: s.id === 'paused' });
+      out.push({ key: 'status:' + s.id, route: r, label: s.name, n: s.id === 'archived' ? sel.archived().length : s.id === 'followup' ? sel.waiting().length : sel.withStatus(s.id).length, kind: 'status', def: s.id === 'paused' || s.id === 'followup' });
     });
+    out.push({ key: 'delegated', route: 'delegated', label: ROUTES.delegated.title, n: sel.delegatedAll().length, kind: 'view', def: true });
     out.push({ key: 'done', route: 'logbook', label: (statusById('done') || {}).name || 'Done', n: sel.doneToday().length, kind: 'view', def: true });
     out.push({ key: 'all', route: 'alltasks', label: 'All', n: sel.allOpen().length, kind: 'view', def: true });
     out.push({ key: 'upcoming', route: 'upcoming', label: ROUTES.upcoming.title, n: sel.upcoming().length, kind: 'view', def: false });
@@ -6377,7 +6404,7 @@
       } else order.push(x.key);
     });
     if (!saved.length) {
-      var rank = function (k) { var i = defaultOrder.indexOf(k); if (i >= 0) return i; if (k.indexOf('list:') === 0) return 5; return { 'tag:followup': 6, 'tag:delegated': 7, 'status:paused': 8, done: 9, all: 10 }[k] || 20; };
+      var rank = function (k) { var i = defaultOrder.indexOf(k); if (i >= 0) return i; if (k.indexOf('list:') === 0) return 5; return { 'status:followup': 6, delegated: 7, 'status:paused': 8, done: 9, all: 10 }[k] || 20; };
       order.sort(function (a, b) { return rank(a) - rank(b) || keys.indexOf(a) - keys.indexOf(b); });
     }
     var vis = db.settings.layout.tileVis;
@@ -6412,12 +6439,12 @@
       if (b) b.textContent = n; else a.insertAdjacentHTML('beforeend', '<span class="badge">' + n + '</span>');
     }
     ordered(db.lists).forEach(function (l) { if (!l.builtin) badge(l.id, sel.inList(l.id).length); });
-    ordered(db.tags).forEach(function (g) { badge(tagRoute(g), g.id === 'delegated' ? sel.delegatedAll().length : sel.withTag(g.id).length + (g.id === 'followup' ? 0 : 0)); });
+    ordered(db.tags).forEach(function (g) { badge(tagRoute(g), sel.withTag(g.id).length); });
+    badge('delegated', sel.delegatedAll().length);
     ordered(db.statuses).forEach(function (s) { var r = statusRoute(s); if (r && r !== 'archive') badge(r, sel.withStatus(s.id).length); });
     var hidden = db.settings.layout.menuHidden.slice();
     db.lists.forEach(function (l) { if (l.hidden) hidden.push(l.id); });
-    if (!tagById('followup')) hidden.push('followup');
-    if (!tagById('delegated')) hidden.push('delegated');
+    if (!statusById('followup')) hidden.push('followup');
     if (!statusById('paused')) hidden.push('paused');
     hidden.forEach(function (r) { $all('.nav-link[data-go="' + r + '"]', nav).forEach(function (a) { if (a.getAttribute('aria-current') !== 'page') a.remove(); }); });
   };
@@ -6429,7 +6456,8 @@
     _render110(rs);
     var r = ui.route.name, name = '';
     var l = listById(r); if (l && l.builtin) name = l.name;
-    if (TAG_ROUTES[r] === r) { var g = tagById(r); if (g) name = g.name; }
+    if (r === 'followup') name = (statusById('followup') || {}).name || '';
+    if (r === 'areas') name = 'Types';
     if (r === 'paused') name = (statusById('paused') || {}).name || '';
     var h1 = name && $('#screen .page-head h1');
     if (h1 && h1.textContent !== name) h1.textContent = name;
@@ -7052,6 +7080,248 @@
 
   var _boot110x = boot;
   boot = function () { _boot110x(); window.FocusDebug.calcEval = calcEval; };
+
+  /* ================= v1.11: every task field has a list you can edit; Type, Area, Location, Links, AI chat; longer description; “What Focus can do” ================= */
+  APP_VERSION = '1.11.0';
+
+  var PRIORITY_DEFAULTS = [{ id: 'urgent', name: 'Urgent', color: 'red', builtin: true }, { id: 'high', name: 'High', color: 'orange', builtin: true }, { id: 'medium', name: 'Medium', color: 'blue', builtin: true }, { id: 'low', name: 'Low', color: 'gray', builtin: true }];
+  var SPHERE_DEFAULTS = ['Health', 'Security', 'Wealth', 'Family', 'Friends & Relatives', 'Household & Assets management', 'Travel, Leisure & Hobbies', 'Routines', 'Self improvement', 'Recognition', 'Self-realization', 'Betterment'];
+  var LOCATION_DEFAULTS = ['Online', 'USA', 'Russia', 'Bali'];
+  var ASSISTANT_DEFAULTS = ['AI assistant', 'Personal assistant', 'Business assistant'];
+  function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || uid(); }
+  function seedNamed(names, prefix) { return names.map(function (n, i) { return { id: prefix + slug(n), name: n, order: i + 1 }; }); }
+
+  var _normalize111 = normalize;
+  normalize = function (d) {
+    d = _normalize111(d);
+    var L = d.settings.layout;
+    if (!Array.isArray(d.priorities) || !d.priorities.length) d.priorities = PRIORITY_DEFAULTS.map(function (x, i) { return Object.assign({ order: i + 1 }, x); });
+    ['urgent', 'medium'].forEach(function (id) { if (!byId(d.priorities, id)) d.priorities.push(Object.assign({ order: 0 }, byId(PRIORITY_DEFAULTS, id))); });
+    if (!Array.isArray(d.spheres)) d.spheres = seedNamed(SPHERE_DEFAULTS, 'sp_');
+    if (!Array.isArray(d.locations)) d.locations = seedNamed(LOCATION_DEFAULTS, 'lo_');
+    if (!L.v111b) { ASSISTANT_DEFAULTS.forEach(function (n) { if (d.settings.assistants.indexOf(n) < 0) d.settings.assistants.push(n); }); L.v111b = true; }
+    d.tasks.forEach(function (t) {
+      if (typeof t.sphere !== 'string' || (t.sphere && !byId(d.spheres, t.sphere))) t.sphere = '';
+      if (typeof t.location !== 'string' || (t.location && !byId(d.locations, t.location))) t.location = '';
+      if (!Array.isArray(t.links)) t.links = [];
+      if (typeof t.aiChat !== 'string') t.aiChat = '';
+      if (!byId(d.priorities, t.priority)) t.priority = 'medium';
+    });
+    syncMeta(d);
+    return d;
+  };
+  /* priorities feed the app's own tables, so every screen, sort and chip follows them */
+  var _syncMeta111 = syncMeta;
+  syncMeta = function (d) {
+    d = d || db; _syncMeta111(d);
+    if (!d || !Array.isArray(d.priorities)) return;
+    var ps = ordered(d.priorities);
+    PRIORITIES.length = 0; ps.forEach(function (p) { PRIORITIES.push([p.id, p.name]); });
+    Object.keys(PRIORITY_RANK).forEach(function (k) { delete PRIORITY_RANK[k]; });
+    Object.keys(PRANK).forEach(function (k) { delete PRANK[k]; });
+    ps.forEach(function (p, i) { PRIORITY_RANK[p.id] = i; PRANK[p.id] = i; });
+    ROUTES.areas.title = 'Types';
+  };
+  var BUILTIN_PRIO = ['urgent', 'high', 'medium', 'low'];
+  priorityChip = function (p) {
+    var x = db && db.priorities ? byId(db.priorities, p) : null;
+    if (!x) return '<span class="chip">' + esc(p) + '</span>';
+    if (BUILTIN_PRIO.indexOf(p) >= 0) return '<span class="chip ' + esc(p) + '">' + esc(x.name) + '</span>';
+    return '<span class="chip tg tg-' + esc(x.color || 'gray') + '">' + esc(x.name) + '</span>';
+  };
+
+  /* ---------- task form: Type, Area, Location, Links, AI research chat, a long description ---------- */
+  function optionList(arr, cur, none) { return '<option value="">' + esc(none) + '</option>' + ordered(arr).map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === cur ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join(''); }
+  function linkChips(urls) { return urls.length ? '<div class="link-chips">' + urls.map(function (u) { return '<a class="tiny-btn link-tiny" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + esc(host(u)) + ' ↗</a>'; }).join('') + '</div>' : ''; }
+  var _taskForm111 = taskForm;
+  taskForm = function (t, ctx) {
+    ctx = ctx || {};
+    _taskForm111(t, ctx);
+    var form = $('#sheet form[data-form=task]'); if (!form || form.querySelector('[name=sphere]')) return;
+    var E = form.elements;
+    if (E.area) { var lab = E.area.closest('label'); if (lab && lab.querySelector('span')) lab.querySelector('span').textContent = 'Type'; }
+    if (E.list && !E.list.querySelector('option[value="_today"]')) {
+      var o = document.createElement('option'); o.value = '_today'; o.textContent = (listById('today') || {}).name || 'Today';
+      var inb = E.list.querySelector('option[value=inbox]'); E.list.insertBefore(o, inb ? inb.nextSibling : E.list.firstChild);
+    }
+    var row = E.project ? E.project.closest('.fields2') : null;
+    var sphere = t ? t.sphere || '' : ctx.sphere || '', loc = t ? t.location || '' : ctx.location || '';
+    if (row) row.insertAdjacentHTML('afterend', '<div class="fields2"><label class="field"><span>Area</span><select name="sphere">' + optionList(db.spheres, sphere, 'None') + '</select></label>' +
+      '<label class="field"><span>Location</span><select name="location">' + optionList(db.locations, loc, 'Any') + '</select></label></div>');
+    if (E.notes) {
+      var nl = E.notes.closest('label'); if (nl && nl.querySelector('span')) nl.querySelector('span').textContent = 'Description';
+      E.notes.rows = 10; E.notes.classList.add('task-desc'); E.notes.placeholder = 'Details, context, what “done” looks like…';
+      var links = t ? (t.links || []) : [], chat = t ? t.aiChat || '' : '';
+      var photosField = $all('.field > span', form).filter(function (x) { return x.textContent === 'Photos'; })[0];
+      var anchorEl = photosField ? photosField.parentNode : nl;
+      anchorEl.insertAdjacentHTML('afterend', '<label class="field"><span>Links <span class="muted small">· one per line</span></span><textarea name="links" rows="3" autocapitalize="off" spellcheck="false" placeholder="https://…">' + esc(links.join('\n')) + '</textarea></label>' + linkChips(links) +
+        '<label class="field"><span>AI research chat</span><input name="aiChat" type="url" inputmode="url" autocapitalize="off" value="' + esc(chat) + '" placeholder="Paste the link to the chat about this task"></label>' +
+        (chat ? '<div class="link-chips"><a class="tiny-btn link-tiny" href="' + esc(chat) + '" target="_blank" rel="noopener noreferrer">Open the AI chat ↗</a></div>' : ''));
+    }
+  };
+  function cleanUrl(u) { u = normUrl(u); return /^https?:\/\//i.test(u) ? u : ''; }
+  var _submitTask111 = submitters.task;
+  submitters.task = function (form) {
+    var E = form.elements;
+    if (!form.dataset.id && !form.dataset.preId) form.dataset.preId = uid();
+    var id = form.dataset.id || form.dataset.preId;
+    if (E.list && E.list.value === '_today') { E.list.value = 'anytime'; if (E.date && !E.date.value) E.date.value = today(); }
+    var extra = E.sphere ? { sphere: E.sphere.value, location: E.location.value, links: String(E.links.value || '').split(/\s*\n\s*/).map(cleanUrl).filter(Boolean), aiChat: cleanUrl(E.aiChat.value || '') } : null;
+    _submitTask111(form);
+    var t = task(id); if (!t || !extra) return;
+    Object.assign(t, extra); save(); if (!sheetOpen()) render();
+  };
+  var _projectForm111 = projectForm;
+  projectForm = function (p, area) {
+    _projectForm111(p, area);
+    var s = $('#sheet form[data-form=project] select[name=area]'); if (s && s.closest('label').querySelector('span')) s.closest('label').querySelector('span').textContent = 'Type';
+  };
+  var _taskMeta111 = taskMeta;
+  taskMeta = function (t, opts) {
+    var h = _taskMeta111(t, opts), extra = '';
+    var lo = t.location && byId(db.locations, t.location); if (lo) extra += '<span class="chip">📍 ' + esc(lo.name) + '</span>';
+    var sp = t.sphere && byId(db.spheres, t.sphere); if (sp) extra += '<span>' + esc(sp.name) + '</span>';
+    if ((t.links && t.links.length) || t.aiChat) extra += '<span title="Links">🔗 ' + ((t.links || []).length + (t.aiChat ? 1 : 0)) + '</span>';
+    return extra ? h.replace(/<\/span>$/, extra + '</span>') : h;
+  };
+  var _areas111 = screens.areas;
+  screens.areas = function () { return _areas111().replace('Every project belongs to one area.', 'Every project belongs to one type: Personal or Business.'); };
+  var _renderDrawer111 = renderDrawer;
+  renderDrawer = function () {
+    _renderDrawer111();
+    var g = $('#drawerNav .group-btn[data-g="Areas & projects"]');
+    if (g && g.firstChild && g.firstChild.nodeType === 3) g.firstChild.nodeValue = 'Types & projects';
+  };
+
+  /* ---------- editable option lists: priorities, life areas, locations ---------- */
+  var OPT = {
+    priorities: { one: 'priority', field: 'priority', color: true, locked: ['urgent', 'medium'], fallback: 'medium', prefix: 'pr_', coll: function () { return db.priorities; } },
+    spheres: { one: 'area', field: 'sphere', fallback: '', prefix: 'sp_', coll: function () { return db.spheres; } },
+    locations: { one: 'location', field: 'location', fallback: '', prefix: 'lo_', coll: function () { return db.locations; } }
+  };
+  function optForm(kind, x) {
+    var K = OPT[kind], locked = x && K.locked && K.locked.indexOf(x.id) >= 0, builtinColor = kind === 'priorities' && x && BUILTIN_PRIO.indexOf(x.id) >= 0;
+    openSheet((x ? 'Edit ' : 'New ') + K.one, '<form data-form="optItem" data-kind="' + kind + '" data-id="' + esc(x ? x.id : '') + '" novalidate>' +
+      '<label class="field"><span>Name</span><input name="name" value="' + esc(x ? x.name : '') + '" required maxlength="50" autofocus></label>' +
+      (K.color && !builtinColor ? colorSelect(x && x.color) : '') +
+      (locked ? '<p class="muted small">The app relies on this one: you can rename it, not delete it.</p>' : '') +
+      '<p class="err" id="optErr" role="alert"></p><div class="actions"><button class="btn block" type="submit">Save</button>' +
+      (x && !locked ? '<button type="button" class="btn danger block" data-act="deleteOpt" data-kind="' + kind + '" data-id="' + esc(x.id) + '">Delete</button>' : '') + '</div></form>');
+  }
+  submitters.optItem = function (form) {
+    var kind = form.dataset.kind, K = OPT[kind], arr = K.coll(), name = val(form, 'name');
+    if (!name) { $('#optErr').textContent = 'Give it a name.'; return; }
+    var x = form.dataset.id ? byId(arr, form.dataset.id) : null;
+    if (!x && arr.some(function (y) { return y.name.toLowerCase() === name.toLowerCase(); })) { $('#optErr').textContent = 'This name already exists.'; return; }
+    if (!x) { x = { id: K.prefix + uid(), order: Math.max.apply(null, arr.map(function (y) { return y.order || 0; }).concat([0])) + 1 }; arr.push(x); }
+    x.name = name.slice(0, 50); if (form.elements.color) x.color = form.elements.color.value;
+    syncMeta(); save(); closeSheet(); render(); toast('Saved');
+  };
+  actions.newOpt = function (el) { optForm(el.dataset.kind, null); };
+  actions.editOpt = function (el) { var x = byId(OPT[el.dataset.kind].coll(), el.dataset.id); if (x) optForm(el.dataset.kind, x); };
+  actions.deleteOpt = function (el) {
+    var kind = el.dataset.kind, K = OPT[kind], arr = K.coll(), x = byId(arr, el.dataset.id); if (!x) return;
+    var used = db.tasks.filter(function (t) { return t[K.field] === x.id; });
+    var fb = K.fallback ? byId(arr, K.fallback) : null;
+    if (!confirm('Delete “' + x.name + '”?' + (used.length ? ' ' + plural(used.length, 'task') + (fb ? ' change to ' + fb.name + '.' : ' lose it.') : ''))) return;
+    used.forEach(function (t) { t[K.field] = K.fallback; });
+    arr.splice(arr.indexOf(x), 1);
+    syncMeta(); save(); closeSheet(true); render(); toast('Deleted');
+  };
+  SORT_HANDLERS.priorities = collHandler(function () { return db.priorities; }, function () { syncMeta(); });
+  SORT_HANDLERS.spheres = collHandler(function () { return db.spheres; });
+  SORT_HANDLERS.locations = collHandler(function () { return db.locations; });
+
+  /* Delegated to: names, kept in Settings → assistants */
+  function assistantForm(i) {
+    var n = i == null ? '' : db.settings.assistants[i];
+    openSheet(i == null ? 'New “Delegated to”' : 'Edit “Delegated to”', '<form data-form="assistantName" data-i="' + (i == null ? '' : i) + '" novalidate><label class="field"><span>Name</span><input name="name" value="' + esc(n) + '" required maxlength="40" autofocus placeholder="e.g. Personal assistant, Wayan"></label>' +
+      '<p class="err" id="asErr" role="alert"></p><div class="actions"><button class="btn block" type="submit">Save</button>' + (i == null ? '' : '<button type="button" class="btn danger block" data-act="deleteAssistant" data-i="' + i + '">Delete</button>') + '</div></form>');
+  }
+  submitters.assistantName = function (form) {
+    var name = val(form, 'name'), A = db.settings.assistants, i = form.dataset.i === '' ? null : +form.dataset.i;
+    if (!name) { $('#asErr').textContent = 'Give it a name.'; return; }
+    if (A.some(function (x, j) { return j !== i && x.toLowerCase() === name.toLowerCase(); })) { $('#asErr').textContent = 'This name already exists.'; return; }
+    if (i == null) A.push(name); else { var old = A[i]; A[i] = name; db.tasks.forEach(function (t) { if (t.delegatedTo === old) t.delegatedTo = name; }); }
+    save(); closeSheet(); render(); toast('Saved');
+  };
+  actions.newAssistant = function () { assistantForm(null); };
+  actions.editAssistant = function (el) { assistantForm(+el.dataset.i); };
+  actions.deleteAssistant = function (el) {
+    var A = db.settings.assistants, i = +el.dataset.i, n = A[i]; if (n == null) return;
+    var used = db.tasks.filter(function (t) { return t.delegatedTo === n; });
+    if (!confirm('Delete “' + n + '”?' + (used.length ? ' ' + plural(used.length, 'task') + ' will no longer be delegated.' : ''))) return;
+    used.forEach(function (t) { t.delegatedTo = ''; }); A.splice(i, 1);
+    save(); closeSheet(true); render(); toast('Deleted');
+  };
+  SORT_HANDLERS.assistants = function (ids) { var old = db.settings.assistants.slice(); db.settings.assistants = ids.map(function (i) { return old[+i]; }).filter(function (x) { return x != null; }); saved(); };
+
+  var _structure111 = screens.structure;
+  screens.structure = function () {
+    var html = _structure111(), add = '';
+    function optSection(kind, title, hint) {
+      var K = OPT[kind], arr = ordered(K.coll());
+      return section(title, arr.length, '<button class="link-btn" data-act="newOpt" data-kind="' + kind + '">+ New</button>') + (hint ? '<p class="muted small st-hint">' + hint + '</p>' : '') +
+        (arr.length ? sortList(kind, kind, arr.map(function (x) {
+          var n = db.tasks.filter(function (t) { return !t.done && t[K.field] === x.id; }).length;
+          return sortItem(x.id, x.name, '<div class="st-row">' + (K.color ? dot(x.color || ({ urgent: 'red', high: 'orange', medium: 'blue', low: 'gray' }[x.id])) : '') + '<span class="st-name">' + esc(x.name) + '<span class="muted small">' + plural(n, 'open task') + '</span></span>' + '<button type="button" class="tiny-btn" data-act="editOpt" data-kind="' + kind + '" data-id="' + esc(x.id) + '">Edit</button></div>');
+        }).join(''), 'list st-list') : '<div class="empty">Nothing yet.</div>');
+    }
+    add += optSection('priorities', 'Priorities', 'Urgent fills Most important; Medium is the default for new tasks.');
+    add += section('Types', db.areas.length, '<button class="link-btn" data-act="newArea">+ New</button>') + '<p class="muted small st-hint">Personal or Business. Every project belongs to one type.</p>' +
+      '<div class="list st-list">' + areasList().map(function (a) { return '<div class="st-row" style="padding-left:12px">' + ICON.folder + '<span class="st-name">' + esc(a[1]) + '<span class="muted small">' + plural(db.projects.filter(function (p) { return p.area === a[0]; }).length, 'project') + '</span></span><button type="button" class="tiny-btn" data-act="editArea" data-id="' + esc(a[0]) + '">Edit</button></div>'; }).join('') + '</div>';
+    add += optSection('spheres', 'Areas', 'Life areas: Health, Wealth, Family…');
+    add += optSection('locations', 'Locations', 'Where a task can be done.');
+    var A = db.settings.assistants;
+    add += section('Delegated to', A.length, '<button class="link-btn" data-act="newAssistant">+ New</button>') +
+      (A.length ? sortList('assistants', 'assistants', A.map(function (n, i) { return sortItem(String(i), n, '<div class="st-row"><span class="st-name">' + esc(n) + '<span class="muted small">' + plural(db.tasks.filter(function (t) { return !t.done && t.delegatedTo === n; }).length, 'open task') + '</span></span><button type="button" class="tiny-btn" data-act="editAssistant" data-i="' + i + '">Edit</button></div>'); }).join(''), 'list st-list') : '<div class="empty">Nobody yet.</div>');
+    var k = html.indexOf('<div class="section"><h2>Home tiles');
+    return k >= 0 ? html.slice(0, k) + add + html.slice(k) : html + add;
+  };
+
+  /* ---------- “What Focus can do”: the feature description, inside the app ---------- */
+  ROUTES.about = { title: 'What Focus can do', icon: 'note' };
+  DRAWER_GROUPS[DRAWER_GROUPS.length - 1][1].splice(1, 0, 'about');
+  DRAWER_SUB.about = 'Every feature, in Russian';
+  ui.aboutHtml = '';
+  function mdInline(s) {
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  }
+  function mdToHtml(md) {
+    var out = [], list = null, para = [];
+    function flush() { if (para.length) { out.push('<p>' + mdInline(para.join(' ')) + '</p>'); para = []; } if (list) { out.push('</' + list + '>'); list = null; } }
+    md.split('\n').forEach(function (line) {
+      var m;
+      if (!line.trim()) { flush(); return; }
+      if ((m = line.match(/^(#{1,3})\s+(.*)/))) { flush(); out.push('<h' + (m[1].length + 1) + '>' + mdInline(m[2]) + '</h' + (m[1].length + 1) + '>'); return; }
+      if ((m = line.match(/^\s*[-*]\s+(.*)/)) || (m = line.match(/^\s*\d+\.\s+(.*)/))) {
+        var kind = /^\s*\d+\./.test(line) ? 'ol' : 'ul';
+        if (para.length) { out.push('<p>' + mdInline(para.join(' ')) + '</p>'); para = []; }
+        if (list !== kind) { if (list) out.push('</' + list + '>'); out.push('<' + kind + '>'); list = kind; }
+        out.push('<li>' + mdInline(m[1]) + '</li>'); return;
+      }
+      if (list) { out.push('</' + list + '>'); list = null; }
+      para.push(line.trim());
+    });
+    flush();
+    return out.join('');
+  }
+  screens.about = function () {
+    if (!ui.aboutHtml) {
+      fetch('docs/FEATURES.md?v=' + APP_VERSION, { cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (md) { ui.aboutHtml = mdToHtml(md.replace(/^# .*\n/, '')); if (ui.route.name === 'about') render(); })
+        .catch(function () { ui.aboutHtml = '<div class="empty">The description opens when you are online the first time.</div>'; if (ui.route.name === 'about') render(); });
+    }
+    return head('What Focus can do', 'Version ' + esc(APP_VERSION)) + '<div class="card pad doc">' + (ui.aboutHtml || '<p class="muted">Loading…</p>') + '</div>';
+  };
+  var _settings111 = screens.settings;
+  screens.settings = function () {
+    var h = _settings111(), link = '<button class="all-tasks-link st-link" data-go="about"><span>' + ICON.note + 'What Focus can do · version ' + esc(APP_VERSION) + '</span>' + ICON.chev + '</button>';
+    var i = h.indexOf('<button class="all-tasks-link st-link" data-go="structure">');
+    return i >= 0 ? h.slice(0, i) + link + h.slice(i) : h + link;
+  };
+  if (db) syncMeta(db);
 
   /* ================= boot ================= */
   function boot() {

@@ -53,11 +53,11 @@ async function newList(page, name) {
 
 test('Home: a tile with the count for every list, Follow-up, Delegated, Paused, Done and All; tiles open their list', async ({ page }) => {
   const errors = await open(page);
-  await expect(page.locator('.list-tiles .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
+  await expect(page.locator('.list-tiles .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Backlog', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
   const d = await stored(page);
   const open_ = d.tasks.filter((t) => !t.done);
   await expect(page.locator('.tile[data-tile="list:inbox"] .n')).toHaveText(String(open_.filter((t) => t.list === 'inbox').length));
-  await expect(page.locator('.tile[data-tile="tag:followup"] .n')).toHaveText('1');
+  await expect(page.locator('.tile[data-tile="status:followup"] .n')).toHaveText('1');
   await expect(page.locator('.tile[data-tile=all] .n')).toHaveText(String(open_.length));
   await press(page, page.locator('.tile[data-tile="list:anytime"]'));
   await expect(h1(page)).toHaveText('Anytime');
@@ -72,7 +72,7 @@ test('Lists: create one, it shows on Home, in the menu and on All tasks; drag a 
   await newList(page, 'Errands');
   const id = await listIdByName(page, 'Errands');
   await go(page, 'home');
-  await expect(page.locator('.list-tiles .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Errands', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
+  await expect(page.locator('.list-tiles .tile .l')).toHaveText(['Inbox', 'Today', 'Most important', 'Anytime', 'Someday', 'Backlog', 'Errands', 'Follow-up', 'Delegated', 'Paused', 'Done', 'All']);
   await press(page, page.locator('#menuBtn'));
   await expect(page.locator(`#drawer .nav-link[data-go="${id}"]`)).toHaveCount(1);
   await page.keyboard.press('Escape');
@@ -158,10 +158,10 @@ test('Lists: rename, sort, hide and delete', async ({ page }) => {
   expect(d.tasks.find((t) => t.title === 'Call Aldo').list).toBe('inbox');
 });
 
-test('Statuses: Not started, In progress, Done, Paused, Archive; archive hides a task; add and delete your own', async ({ page }) => {
+test('Statuses: Not started, In progress, Follow-up, Paused, Done, Archive; archive hides a task; add and delete your own', async ({ page }) => {
   await open(page, '#/inbox');
   await press(page, page.locator('#screen .task-body', { hasText: 'Renew insurance documents' }));
-  await expect(page.locator('#sheet select[name=status] option')).toHaveText(['Not started', 'In progress', 'Done', 'Paused', 'Archive']);
+  await expect(page.locator('#sheet select[name=status] option')).toHaveText(['Not started', 'In progress', 'Follow-up', 'Paused', 'Done', 'Archive']);
   await page.locator('#sheet select[name=status]').selectOption('archived');
   await press(page, page.locator('#sheet button[type=submit]'));
   await expect(page.locator('#screen .task-title', { hasText: 'Renew insurance documents' })).toHaveCount(0);
@@ -196,9 +196,9 @@ test('Statuses: Not started, In progress, Done, Paused, Archive; archive hides a
   expect(d.tasks.find((t) => t.id === 't6').status).toBe('todo');
 });
 
-test('Tags: Follow-up and Delegated are tags; create a tag, put it on a task, open its list, delete it', async ({ page }) => {
+test('Tags: Moscow, Bali and USA to start; create a tag, put it on a task, open its list, delete it', async ({ page }) => {
   await open(page, '#/structure');
-  await expect(page.locator('[data-sort-list=tags] .st-name')).toContainText(['#Follow-up', '#Delegated']);
+  await expect(page.locator('[data-sort-list=tags] .st-name')).toContainText(['#Moscow', '#Bali', '#USA']);
   await press(page, page.locator('[data-act=newTag]'));
   await page.locator('#sheet input[name=name]').fill('Betterplace');
   await press(page, page.locator('#sheet button[type=submit]'));
@@ -206,12 +206,10 @@ test('Tags: Follow-up and Delegated are tags; create a tag, put it on a task, op
   await go(page, 'inbox');
   await press(page, page.locator('#screen .task-body', { hasText: 'Pick a CRM' }));
   await press(page, page.locator('#sheet .tag-chip', { hasText: 'Betterplace' }));
-  await press(page, page.locator('#sheet .tag-chip', { hasText: 'Follow-up' }));
+  await press(page, page.locator('#sheet .tag-chip', { hasText: 'Bali' }));
   await press(page, page.locator('#sheet button[type=submit]'));
-  await expect(page.locator('#screen .task', { hasText: 'Pick a CRM' }).locator('.chip.tg')).toHaveText(['#Follow-up', '#Betterplace']);
-  expect((await stored(page)).tasks.find((t) => t.id === 't6').tags).toEqual(['followup', g.id]);
-  await go(page, 'followup');
-  await expect(page.locator('#screen .task-title', { hasText: 'Pick a CRM' })).toHaveCount(1);
+  await expect(page.locator('#screen .task', { hasText: 'Pick a CRM' }).locator('.chip.tg')).toHaveText(['#Bali', '#Betterplace']);
+  expect((await stored(page)).tasks.find((t) => t.id === 't6').tags).toEqual(['bali', g.id]);
   await press(page, page.locator('#menuBtn'));
   await press(page, page.locator(`#drawer .nav-link[data-go="tag_${g.id}"]`));
   await expect(h1(page)).toHaveText('Betterplace');
@@ -225,38 +223,42 @@ test('Tags: Follow-up and Delegated are tags; create a tag, put it on a task, op
   await press(page, page.locator('#sheet [data-act=deleteTag]'));
   const d = await stored(page);
   expect(d.tags.some((x) => x.id === g.id)).toBe(false);
-  expect(d.tasks.find((t) => t.id === 't6').tags).toEqual(['followup']);
+  expect(d.tasks.find((t) => t.id === 't6').tags).toEqual(['bali']);
 });
 
-test('Older data: Follow-up status and Delegated-to become tags; delegating adds the tag, removing the tag un-delegates', async ({ page }) => {
+test('Data from 1.10: Follow-up and Delegated tags turn into the Follow-up status and the Delegated to field', async ({ page }) => {
   await open(page);
   await page.evaluate(() => {
     const d = JSON.parse(localStorage.getItem('focus.data.v1'));
-    delete d.tags; delete d.statuses; delete d.lists;
-    d.tasks.forEach((t) => { delete t.tags; });
-    d.tasks.find((t) => t.id === 't7').status = 'waiting';
+    d.tags = [{ id: 'followup', name: 'Follow-up', color: 'purple', builtin: true, order: 1 }, { id: 'delegated', name: 'Delegated', color: 'teal', builtin: true, order: 2 }, { id: 'tg_x', name: 'Calls', color: 'gray', order: 3 }];
+    d.statuses = d.statuses.filter((s) => s.id !== 'followup');
+    d.tasks.forEach((t) => { t.tags = []; if (t.status === 'followup') t.status = 'todo'; });
+    d.tasks.find((t) => t.id === 't7').tags = ['followup', 'tg_x'];
+    d.tasks.find((t) => t.id === 't4').tags = ['delegated'];
+    delete d.settings.layout.v111;
     localStorage.setItem('focus.data.v1', JSON.stringify(d));
   });
   await page.goto('index.html#/followup');
   await page.waitForSelector('html[data-ready="1"]');
   await expect(page.locator('#screen .task-title', { hasText: 'Research new supplier options' })).toHaveCount(1);
-  let d = await stored(page);
+  const d = await stored(page);
   const t7 = d.tasks.find((t) => t.id === 't7');
-  expect(t7.status).toBe('todo');
-  expect(t7.tags).toContain('followup');
-  expect(d.tasks.find((t) => t.id === 't4').tags).toContain('delegated');
-  /* untick Delegated in the form: the task is no longer delegated */
+  expect(t7.status).toBe('followup');
+  expect(t7.tags).toEqual(['tg_x']);
+  expect(d.tasks.find((t) => t.id === 't4').tags).toEqual([]);
+  expect(d.tasks.find((t) => t.id === 't4').delegatedTo).toBe('Assistant');
+  expect(d.tags.map((g) => g.name)).toEqual(['Calls', 'Moscow', 'Bali', 'USA']);
+  expect(d.statuses.slice().sort((a, b) => a.order - b.order).map((x) => x.id)).toEqual(['todo', 'doing', 'followup', 'paused', 'done', 'archived']);
   await go(page, 'delegated');
-  await press(page, page.locator('#screen .task-body', { hasText: 'Draft launch announcement' }));
-  await press(page, page.locator('#sheet .tag-chip', { hasText: 'Delegated' }));
-  await press(page, page.locator('#sheet button[type=submit]'));
-  d = await stored(page);
-  expect(d.tasks.find((t) => t.id === 't4').delegatedTo).toBe('');
-  expect(d.tasks.find((t) => t.id === 't4').tags).not.toContain('delegated');
+  await expect(page.locator('#screen .task-title', { hasText: 'Draft launch announcement' })).toHaveCount(1);
 });
 
 test('Layout settings: Home tiles on/off and order, menu items, start page, tags on rows', async ({ page }) => {
-  await open(page, '#/structure');
+  await open(page);
+  await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('focus.data.v1')); d.tasks.find((t) => t.id === 't1').tags = ['bali']; localStorage.setItem('focus.data.v1', JSON.stringify(d)); });
+  await page.goto('index.html#/today'); await page.waitForSelector('html[data-ready="1"]');
+  await expect(page.locator('#screen .chip.tg', { hasText: '#Bali' })).toHaveCount(1);
+  await go(page, 'structure');
   await page.locator('[data-chg=tileVis][data-id="status:paused"]').uncheck();
   await page.locator('[data-chg=tileVis][data-id=upcoming]').check();
   await page.locator('[data-chg=menuVis][data-id=kanban]').uncheck();
@@ -271,7 +273,7 @@ test('Layout settings: Home tiles on/off and order, menu items, start page, tags
   await expect(page.locator('#drawer .nav-link[data-go=calendar]')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await go(page, 'today');
-  await expect(page.locator('#screen .chip.tg', { hasText: '#Follow-up' })).toHaveCount(0);
+  await expect(page.locator('#screen .chip.tg', { hasText: '#Bali' })).toHaveCount(0);
   await page.goto('index.html');
   await page.waitForSelector('html[data-ready="1"]');
   await expect(h1(page)).toHaveText('All tasks');

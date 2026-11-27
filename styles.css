@@ -1019,3 +1019,16 @@ body.dragging .drop-list { outline: 2px dashed color-mix(in srgb, var(--accent) 
 @media (prefers-reduced-motion: reduce) { .ptr.spin { animation: none; } }
 
 .wide .tiles.list-tiles, html.wide .tiles.list-tiles { grid-template-columns: repeat(5, 1fr); }
+
+/* ===== v1.11 ===== */
+textarea.task-desc { min-height: 34vh; line-height: 1.5; }
+.link-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
+.doc { line-height: 1.55; }
+.doc h2 { font-size: 19px; margin: 18px 0 8px; }
+.doc h2:first-child, .doc h3:first-child { margin-top: 0; }
+.doc h3 { font-size: 16px; margin: 14px 0 6px; }
+.doc p { margin: 0 0 10px; }
+.doc ul, .doc ol { margin: 0 0 10px; padding-left: 20px; }
+.doc li { margin: 3px 0; }
+.doc code { font-size: .92em; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 4px; }
+.doc a { color: var(--accent); }
